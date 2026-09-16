@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Reports · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Reports</h1>
+  <p>Lead volume by status, across the whole team.</p>
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>By status &middot; {{ total }} total</h2></div>
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>Status</th><th>Leads</th></tr></thead>
+      <tbody>
+        {% for row in by_status %}
+        <tr><td>{{ row.label }}</td><td>{{ row.value }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

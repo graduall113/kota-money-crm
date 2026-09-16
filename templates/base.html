@@ -1,0 +1,137 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Kota Money CRM{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/style.css' %}">
+<link rel="stylesheet" href="{% static 'css/auth.css' %}">
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+
+{% with profile=request.user.staff_profile %}
+<div class="app-shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-name">Kota Money</span>
+      <span class="brand-tag">Lead Management System</span>
+    </div>
+
+    <nav class="nav">
+      <a href="{% url 'dashboard' %}" class="nav-link {% if active_page == 'dashboard' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Dashboard
+      </a>
+
+      {% if profile.is_admin %}
+      <a href="{% url 'all_leads' %}" class="nav-link {% if active_page == 'all_leads' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        All Leads
+      </a>
+      {% endif %}
+
+      <a href="{% url 'my_leads' %}" class="nav-link {% if active_page == 'my_leads' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-6.4 7-6.4s7 2.8 7 6.4"/></svg>
+        My Leads
+      </a>
+      <a href="{% url 'followups' %}" class="nav-link {% if active_page == 'followups' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.5V12l3 2"/></svg>
+        Follow-ups
+      </a>
+
+      {% if profile.is_admin %}
+      <div class="nav-divider"></div>
+
+      <a href="{% url 'staff_list' %}" class="nav-link {% if active_page == 'staff' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2.5 19c0-3.3 2.9-5.6 6.5-5.6s6.5 2.3 6.5 5.6"/><circle cx="17.5" cy="8.5" r="2.3"/><path d="M16 13.6c2.7.4 4.5 2.3 4.5 5"/></svg>
+        Staff
+      </a>
+      <a href="{% url 'reports' %}" class="nav-link {% if active_page == 'reports' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M11 20V4M18 20v-7"/></svg>
+        Reports
+      </a>
+      {% endif %}
+
+      <a href="{% url 'settings_page' %}" class="nav-link {% if active_page == 'settings_page' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5c.1-.5.1-1 0-1.5.9-.6 1.1-1.7.5-2.6a1.9 1.9 0 0 0-2.4-.7c-.4-.3-.8-.6-1.3-.8-.1-1-.9-1.7-1.9-1.7s-1.8.7-1.9 1.7c-.5.2-.9.5-1.3.8a1.9 1.9 0 0 0-2.4.7c-.6.9-.4 2 .5 2.6-.1.5-.1 1 0 1.5-.9.6-1.1 1.7-.5 2.6.6.9 1.6 1.1 2.4.7.4.3.8.6 1.3.8.1 1 .9 1.7 1.9 1.7s1.8-.7 1.9-1.7c.5-.2.9-.5 1.3-.8.8.4 1.8.2 2.4-.7.6-.9.4-2-.5-2.6Z"/></svg>
+        Settings
+      </a>
+    </nav>
+
+    {# Native Django Lead form: saves to the CRM DB, then pushes to n8n. #}
+    <a href="{% url 'lead_create' %}" class="nav-add-lead {% if active_page == 'add_lead' %}is-active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Add New Lead
+    </a>
+
+    <div class="sidebar-footer">Kota Money &middot; internal CRM</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="topbar-menu-toggle" id="sidebarToggle" aria-label="Toggle navigation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+
+      <div class="user-menu" id="userMenu">
+        <button class="user-menu-trigger" id="userMenuTrigger">
+          <span class="avatar">{{ profile.initials|default:"?" }}</span>
+          <span class="user-menu-text">
+            <span class="user-menu-name">{{ request.user.get_full_name|default:request.user.username }}</span>
+            <span class="user-menu-role">{{ profile.get_role_display|default:"—" }}</span>
+          </span>
+        </button>
+        <div class="user-menu-dropdown" id="userMenuDropdown">
+          <a href="{% url 'profile' %}">Profile</a>
+          <a href="{% url 'settings_page' %}">Account Settings</a>
+          <a href="{% url 'logout' %}">Logout</a>
+        </div>
+      </div>
+    </div>
+
+    <main class="page">
+      {% if messages %}
+        <div style="margin-bottom:18px;">
+          {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+</div>
+{% endwith %}
+
+<script>
+  const toggle = document.getElementById('sidebarToggle');
+  const sidebar = document.getElementById('sidebar');
+  if (toggle && sidebar) {
+    toggle.addEventListener('click', () => sidebar.classList.toggle('is-open'));
+    document.addEventListener('click', (e) => {
+      if (window.innerWidth <= 900 && sidebar.classList.contains('is-open')
+          && !sidebar.contains(e.target) && !toggle.contains(e.target)) {
+        sidebar.classList.remove('is-open');
+      }
+    });
+  }
+
+  const menuTrigger = document.getElementById('userMenuTrigger');
+  const userMenu = document.getElementById('userMenu');
+  if (menuTrigger && userMenu) {
+    menuTrigger.addEventListener('click', () => userMenu.classList.toggle('is-open'));
+    document.addEventListener('click', (e) => {
+      if (!userMenu.contains(e.target)) userMenu.classList.remove('is-open');
+    });
+  }
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

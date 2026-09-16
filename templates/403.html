@@ -1,0 +1,9 @@
+{% extends "auth/auth_base.html" %}
+{% block title %}Access denied · Kota Money{% endblock %}
+{% block auth_content %}
+<div class="auth-heading">
+  <h1>Access denied</h1>
+  <p>{{ exception|default:"You don't have permission to view this page." }}</p>
+</div>
+<a href="/" class="link">← Back to dashboard</a>
+{% endblock %}

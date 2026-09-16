@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Profile · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Profile</h1>
+  <p>Your account details.</p>
+</div>
+
+<div class="panel" style="max-width:560px;">
+  <div class="panel-header">
+    <h2>Account</h2>
+  </div>
+  <div style="padding:22px;">
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:22px;">
+      <span class="avatar" style="width:48px; height:48px; font-size:16px;">{{ request.user.staff_profile.initials }}</span>
+      <div>
+        <div style="font-weight:600; font-family:'Sora',sans-serif;">{{ request.user.get_full_name|default:request.user.username }}</div>
+        <div style="font-size:13px; color:var(--text-muted); text-transform:capitalize;">{{ request.user.staff_profile.get_role_display }} &middot; {{ request.user.staff_profile.get_status_display }}</div>
+      </div>
+    </div>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <div class="field-group">
+        <label for="{{ form.full_name.id_for_label }}">Full Name</label>
+        {{ form.full_name }}
+      </div>
+      <div class="field-group">
+        <label for="{{ form.email.id_for_label }}">Email</label>
+        {{ form.email }}
+        {% if form.email.errors %}<div class="field-error">{{ form.email.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field-group">
+        <label for="{{ form.phone.id_for_label }}">Phone</label>
+        {{ form.phone }}
+      </div>
+      <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px;">Save changes</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

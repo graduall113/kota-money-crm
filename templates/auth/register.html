@@ -1,0 +1,48 @@
+{% extends "auth/auth_base.html" %}
+{% block title %}Create account · Kota Money{% endblock %}
+{% block auth_content %}
+
+<div class="auth-heading">
+  <h1>Create your account</h1>
+  <p>New accounts are set up as staff by default.</p>
+</div>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  <div class="field-group">
+    <label for="{{ form.full_name.id_for_label }}">Full Name</label>
+    {{ form.full_name }}
+    {% if form.full_name.errors %}<div class="field-error">{{ form.full_name.errors|striptags }}</div>{% endif %}
+  </div>
+  <div class="field-group">
+    <label for="{{ form.email.id_for_label }}">Email</label>
+    {{ form.email }}
+    {% if form.email.errors %}<div class="field-error">{{ form.email.errors|striptags }}</div>{% endif %}
+  </div>
+  <div class="field-group">
+    <label for="{{ form.phone.id_for_label }}">Phone Number</label>
+    {{ form.phone }}
+  </div>
+  <div class="field-group">
+    <label for="{{ form.password1.id_for_label }}">Password</label>
+    {{ form.password1 }}
+    {% if form.password1.errors %}<div class="field-error">{{ form.password1.errors|striptags }}</div>{% endif %}
+  </div>
+  <div class="field-group">
+    <label for="{{ form.password2.id_for_label }}">Confirm Password</label>
+    {{ form.password2 }}
+    {% if form.password2.errors %}<div class="field-error">{{ form.password2.errors|striptags }}</div>{% endif %}
+  </div>
+  <div class="field-group">
+    <label for="{{ form.reference_code.id_for_label }}">Staff Code / Reference Code <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+    {{ form.reference_code }}
+  </div>
+
+  <button type="submit" class="btn-primary">Create Account</button>
+</form>
+
+<div class="auth-footer">
+  Already have an account? <a href="{% url 'login' %}" class="link">Sign in</a>
+</div>
+
+{% endblock %}

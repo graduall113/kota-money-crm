@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Settings · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Settings</h1>
+  <p>Workspace and integration preferences.</p>
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Account</h2></div>
+  <div style="padding:22px;">
+    <p style="margin:0 0 4px; font-size:13px; color:var(--text-muted);">Signed in as</p>
+    <p style="margin:0 0 18px;">{{ request.user.email }} &middot; <span style="text-transform:capitalize;">{{ request.user.staff_profile.get_role_display }}</span></p>
+    <a href="{% url 'profile' %}" class="link">Edit profile →</a>
+  </div>
+</div>
+
+{% if request.user.staff_profile.is_admin %}
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Lead automation</h2></div>
+  <div style="padding:22px;">
+    <p style="margin:0 0 4px; font-size:13px; color:var(--text-muted);">
+      "Add New Lead" opens the CRM's own form. Every new lead is saved here first, then pushed to this n8n webhook:
+    </p>
+    <p style="margin:0; font-family:monospace; font-size:13.5px; word-break:break-all;">{{ N8N_LEAD_WEBHOOK_URL }}</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

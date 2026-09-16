@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Delete Lead · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Delete Lead</h1>
+  <p>This cannot be undone.</p>
+</div>
+
+<div class="panel" style="max-width:520px;">
+  <div style="padding:22px;">
+    <p style="margin:0 0 18px; font-size:14.5px; color:var(--text);">
+      Are you sure you want to delete the lead for
+      <strong>{{ lead.customer_name }}</strong> (Lead #{{ lead.pk }})?
+    </p>
+    <p style="margin:0 0 22px; font-size:13px; color:var(--text-muted);">
+      Contact: {{ lead.contact_number }} · Requirement: {{ lead.requirement|default:"—" }}
+    </p>
+
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px; background:#b3401f;">Yes, delete this lead</button>
+      <a href="{% url 'all_leads' %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

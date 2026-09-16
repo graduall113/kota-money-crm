@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == "add" %}Add Staff{% else %}Edit Staff{% endif %} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{% if mode == "add" %}Add Staff{% else %}Edit Staff{% endif %}</h1>
+  <p>{% if mode == "add" %}Create a new staff or admin account.{% else %}Update role, status, and contact details.{% endif %}</p>
+</div>
+
+<div class="panel" style="max-width:560px;">
+  <div style="padding:22px;">
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <div class="field-group">
+        <label for="{{ form.full_name.id_for_label }}">Full Name</label>
+        {{ form.full_name }}
+        {% if form.full_name.errors %}<div class="field-error">{{ form.full_name.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field-group">
+        <label for="{{ form.email.id_for_label }}">Email</label>
+        {{ form.email }}
+        {% if form.email.errors %}<div class="field-error">{{ form.email.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field-group">
+        <label for="{{ form.phone.id_for_label }}">Phone Number</label>
+        {{ form.phone }}
+      </div>
+      {% if mode == "add" %}
+      <div class="field-group">
+        <label for="{{ form.password.id_for_label }}">Password / temporary password</label>
+        {{ form.password }}
+        {% if form.password.errors %}<div class="field-error">{{ form.password.errors|striptags }}</div>{% endif %}
+      </div>
+      {% endif %}
+      <div class="field-group">
+        <label for="{{ form.role.id_for_label }}">Role</label>
+        {{ form.role }}
+      </div>
+      <div class="field-group">
+        <label for="{{ form.status.id_for_label }}">Status</label>
+        {{ form.status }}
+      </div>
+      <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px;">
+        {% if mode == "add" %}Create Account{% else %}Save changes{% endif %}
+      </button>
+      <a href="{% url 'staff_list' %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

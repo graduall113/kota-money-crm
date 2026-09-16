@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == "edit" %}Edit Lead{% else %}Add New Lead{% endif %} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{% if mode == "edit" %}Edit Lead{% else %}Add New Lead{% endif %}</h1>
+  {% if mode == "edit" %}
+  <p>Updating {{ lead.customer_name }} — saved straight to the CRM database.</p>
+  {% else %}
+  <p>Saved straight to the CRM, then sent to n8n for Gmail / Sheets / WhatsApp automation.</p>
+  {% endif %}
+</div>
+
+<div class="panel" style="max-width:640px;">
+  <div style="padding:22px;">
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="field-group">
+        <label for="{{ form.form_date.id_for_label }}">Date (DD/MM/YYYY)</label>
+        {{ form.form_date }}
+        {% if form.form_date.errors %}<div class="field-error">{{ form.form_date.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.customer_name.id_for_label }}">Full Name</label>
+        {{ form.customer_name }}
+        {% if form.customer_name.errors %}<div class="field-error">{{ form.customer_name.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.contact_number.id_for_label }}">Contact No.</label>
+        {{ form.contact_number }}
+        {% if form.contact_number.errors %}<div class="field-error">{{ form.contact_number.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.work_profile.id_for_label }}">Work Profile</label>
+        {{ form.work_profile }}
+        {% if form.work_profile.errors %}<div class="field-error">{{ form.work_profile.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.income.id_for_label }}">Income</label>
+        {{ form.income }}
+        {% if form.income.errors %}<div class="field-error">{{ form.income.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.requirement.id_for_label }}">Requirement</label>
+        {{ form.requirement }}
+        {% if form.requirement.errors %}<div class="field-error">{{ form.requirement.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.loan_amount.id_for_label }}">Loan Amount</label>
+        {{ form.loan_amount }}
+        {% if form.loan_amount.errors %}<div class="field-error">{{ form.loan_amount.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.bank_calling.id_for_label }}">Bank Calling</label>
+        {{ form.bank_calling }}
+        {% if form.bank_calling.errors %}<div class="field-error">{{ form.bank_calling.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.status.id_for_label }}">Status</label>
+        {{ form.status }}
+        {% if form.status.errors %}<div class="field-error">{{ form.status.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.reference_by_name.id_for_label }}">Reference by</label>
+        {{ form.reference_by_name }}
+        {% if form.reference_by_name.errors %}<div class="field-error">{{ form.reference_by_name.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.assigned_to_name.id_for_label }}">Assigned To</label>
+        {{ form.assigned_to_name }}
+        {% if form.assigned_to_name.errors %}<div class="field-error">{{ form.assigned_to_name.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px;">{% if mode == "edit" %}Update Lead{% else %}Create Lead{% endif %}</button>
+      <a href="{% if mode == 'edit' %}{% url 'all_leads' %}{% else %}{% url 'dashboard' %}{% endif %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

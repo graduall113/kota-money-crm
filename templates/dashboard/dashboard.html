@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Dashboard</h1>
+  <p>{% if request.user.staff_profile.is_admin %}An overview of lead activity across the team.{% else %}An overview of leads you've referred.{% endif %}</p>
+</div>
+
+<div class="stat-grid">
+  {% for stat in stats %}
+  <div class="stat-card">
+    <div class="stat-label">{{ stat.label }}</div>
+    <div class="stat-value">{{ stat.value }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <h2>Recent leads</h2>
+  </div>
+  {% if recent_leads %}
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Customer</th>
+          <th>Phone</th>
+          <th>Requirement</th>
+          <th>Status</th>
+          <th>Reference By</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead in recent_leads %}
+        <tr>
+          <td>{{ lead.customer_name }}</td>
+          <td><a href="tel:{{ lead.contact_number }}" class="link">{{ lead.contact_number }}</a></td>
+          <td>{{ lead.requirement|default:"—" }}</td>
+          <td><span class="status-pill status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
+          <td>{% if lead.reference_by %}{{ lead.reference_by.get_full_name|default:lead.reference_by.username }}{% else %}—{% endif %}</td>
+          <td>{{ lead.created_at|date:"d M Y" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto;"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>
+    <h3>No leads yet</h3>
+    <p>Leads captured through the form will show up here.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
