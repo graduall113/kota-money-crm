@@ -1,0 +1,65 @@
+<form method="get" class="lead-filter-form">
+  <div class="filter-grid">
+    <div style="grid-column: span 2;"><label>Search (name, phone, Lead ID, email)</label><input type="text" name="q" value="{{ GET.q }}" placeholder="e.g. Rahul · 98290 · KM-1058 · name@mail.com"></div>
+    <div><label>Status</label>
+      <select name="status"><option value="">All</option>{% for key, label in status_choices %}<option value="{{ key }}" {% if GET.status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div><label>Document status</label>
+      <select name="doc_status">
+        <option value="">All</option>
+        <option value="not_started" {% if GET.doc_status == 'not_started' %}selected{% endif %}>Not Started</option>
+        <option value="partial" {% if GET.doc_status == 'partial' %}selected{% endif %}>Partially Received</option>
+        <option value="complete" {% if GET.doc_status == 'complete' %}selected{% endif %}>Complete</option>
+        <option value="pending" {% if GET.doc_status == 'pending' %}selected{% endif %}>Any pending</option>
+      </select></div>
+    {% if is_admin_view %}
+    <div><label>Assigned To</label>
+      <select name="assigned_to"><option value="">All</option><option value="none" {% if GET.assigned_to == 'none' %}selected{% endif %}>Unassigned</option>
+        {% for s in staff_members %}<option value="{{ s.id }}" {% if GET.assigned_to == s.id|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+    <div><label>Reference By</label>
+      <select name="reference_by"><option value="">All</option>
+        {% for s in staff_members %}<option value="{{ s.id }}" {% if GET.reference_by == s.id|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+    {% endif %}
+    <div><label>Follow-up</label>
+      <select name="followup"><option value="">Any</option>
+        <option value="today" {% if GET.followup == 'today' %}selected{% endif %}>Today</option>
+        <option value="overdue" {% if GET.followup == 'overdue' %}selected{% endif %}>Overdue</option>
+        <option value="upcoming" {% if GET.followup == 'upcoming' %}selected{% endif %}>Upcoming</option></select></div>
+    <div><label>Lead source</label>
+      <select name="source"><option value="">All</option>{% for s in sources %}<option value="{{ s }}" {% if GET.source == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+  </div>
+  <details class="filter-more" {% if GET.work_profile or GET.requirement or GET.loan_min or GET.loan_max or GET.income or GET.date_from or GET.date_to or GET.followup_from or GET.followup_to or GET.created_from or GET.created_to or GET.updated_from or GET.updated_to or GET.doc %}open{% endif %}>
+    <summary>More filters</summary>
+    <div class="filter-grid">
+      <div><label>Work profile</label><input type="text" name="work_profile" value="{{ GET.work_profile }}"></div>
+      <div><label>Requirement</label><input type="text" name="requirement" value="{{ GET.requirement }}"></div>
+      <div><label>Income</label><input type="text" name="income" value="{{ GET.income }}"></div>
+      <div><label>Interest</label><select name="interest"><option value="">Any</option><option value="interested" {% if GET.interest == 'interested' %}selected{% endif %}>Interested</option><option value="not_interested" {% if GET.interest == 'not_interested' %}selected{% endif %}>Not interested</option></select></div>
+      <div><label>Loan amount from</label><input type="text" name="loan_min" value="{{ GET.loan_min }}" inputmode="decimal"></div>
+      <div><label>Loan amount to</label><input type="text" name="loan_max" value="{{ GET.loan_max }}" inputmode="decimal"></div>
+      <div><label>Specific document</label>
+        <select name="doc"><option value="">—</option>{% for d in doc_types %}<option value="{{ d.id }}" {% if GET.doc == d.id|stringformat:'s' %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select></div>
+      <div><label>…is</label><select name="doc_state"><option value="">—</option><option value="received" {% if GET.doc_state == 'received' %}selected{% endif %}>Received</option><option value="pending" {% if GET.doc_state == 'pending' %}selected{% endif %}>Pending</option></select></div>
+      <div><label>Form date from</label><input type="text" name="date_from" value="{{ GET.date_from }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div><label>Form date to</label><input type="text" name="date_to" value="{{ GET.date_to }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div><label>Follow-up from</label><input type="text" name="followup_from" value="{{ GET.followup_from }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div><label>Follow-up to</label><input type="text" name="followup_to" value="{{ GET.followup_to }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div><label>Created from</label><input type="text" name="created_from" value="{{ GET.created_from }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div><label>Created to</label><input type="text" name="created_to" value="{{ GET.created_to }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div><label>Updated from</label><input type="text" name="updated_from" value="{{ GET.updated_from }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div><label>Updated to</label><input type="text" name="updated_to" value="{{ GET.updated_to }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    </div>
+  </details>
+  <div class="filter-grid" style="border-top:none; padding-top:0;">
+    <div class="filter-actions">
+      <button type="submit" class="btn-primary btn-sm">Apply Filters</button>
+      <a href="{{ request.path }}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a>
+      {% if can_export %}
+      <a href="{% url 'leads_export' %}?{{ querystring }}" class="btn-secondary btn-sm" style="text-decoration:none;">Export CSV</a>
+      <a href="{% url 'leads_export' %}?{{ querystring }}{% if querystring %}&{% endif %}format=xlsx" class="btn-secondary btn-sm" style="text-decoration:none;">Export Excel</a>
+      {% endif %}
+      {% if is_admin_view and total_count %}
+      <a href="{% url 'bulk_assign' %}?model=lead&query={{ querystring|urlencode }}" class="btn-secondary btn-sm" style="text-decoration:none;">Distribute filtered leads…</a>
+      {% endif %}
+    </div>
+  </div>
+</form>

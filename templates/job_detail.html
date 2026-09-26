@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ job.title }} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ job.title }}</h1><p id="jobState">{{ job.status|title }}</p></div>
+<div class="panel confirm-box"><div class="panel-body">
+  <div class="progress lg"><span id="jobBar" style="width:{{ job.progress_percent }}%"></span></div>
+  <div class="progress-text"><span id="jobNums">{{ job.processed }} / {{ job.total }}</span> · <span id="jobPct">{{ job.progress_percent }}</span>%</div>
+  <div id="jobResult" style="margin-top:14px;">{% if job.status == 'done' %}<div class="alert alert-success">Finished.{% if job.result.moved is not None %} {{ job.result.moved }} moved.{% endif %}{% if job.result.changed is not None %} {{ job.result.changed }} changed.{% endif %}{% if job.result.deleted is not None %} {{ job.result.deleted }} deleted.{% endif %}{% if job.result.updated is not None %} {{ job.result.updated }} updated.{% endif %}{% if job.result.added is not None %} {{ job.result.added }} added to "{{ job.result.segment }}".{% endif %}</div>{% endif %}{% if job.status == 'failed' %}<div class="alert alert-error">{{ job.error }}</div>{% endif %}</div>
+  <p style="margin-top:18px;"><a class="link" href="{% url 'dashboard' %}">← Back to dashboard</a></p>
+</div></div>
+{% endblock %}
+{% block extra_scripts %}
+{% if job.status == 'queued' or job.status == 'running' %}
+<script>
+(function poll() {
+  fetch("{% url 'job_detail' job.pk %}?json=1").then(r => r.json()).then(d => {
+    document.getElementById('jobBar').style.width = d.percent + '%';
+    document.getElementById('jobPct').textContent = d.percent;
+    document.getElementById('jobNums').textContent = d.processed + ' / ' + d.total;
+    document.getElementById('jobState').textContent = d.status;
+    if (d.status === 'done' || d.status === 'failed') { location.reload(); } else { setTimeout(poll, 1500); }
+  }).catch(() => setTimeout(poll, 3000));
+})();
+</script>
+{% endif %}
+{% endblock %}

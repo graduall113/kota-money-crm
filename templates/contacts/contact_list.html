@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Contacts · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header with-actions">
+  <div><h1>Contacts</h1><p>{% if is_admin_view %}Every imported and saved contact.{% else %}Contacts assigned to you.{% endif %} <span class="muted">{{ total_count }} record{{ total_count|pluralize }}.</span></p></div>
+  {% if is_admin_view %}<div class="page-actions"><a href="{% url 'import_new' %}" class="btn-primary">Import Data</a></div>{% endif %}
+</div>
+<div class="panel">
+  <form method="get">
+    <div class="filter-grid">
+      <div style="grid-column: span 2;"><label>Search (name, phone, email)</label><input type="text" name="q" value="{{ GET.q }}"></div>
+      <div><label>Status</label><select name="status"><option value="">All</option>{% for k, l in status_choices %}<option value="{{ k }}" {% if GET.status == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div><label>City</label><input type="text" name="city" value="{{ GET.city }}"></div>
+      {% if is_admin_view %}
+      <div><label>Assigned To</label><select name="assigned_to"><option value="">All</option><option value="none" {% if GET.assigned_to == 'none' %}selected{% endif %}>Unassigned</option>{% for s in staff_members %}<option value="{{ s.id }}" {% if GET.assigned_to == s.id|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+      <div><label>Reference By</label><select name="reference_by"><option value="">All</option>{% for s in staff_members %}<option value="{{ s.id }}" {% if GET.reference_by == s.id|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+      {% endif %}
+      <div><label>Import batch</label><select name="import_batch"><option value="">All</option>{% for b in batches %}<option value="{{ b.id }}" {% if GET.import_batch == b.id|stringformat:'s' %}selected{% endif %}>{{ b.code }}</option>{% endfor %}</select></div>
+      <div><label>Segment</label><select name="segment"><option value="">All Segments</option>{% for seg in segments %}<option value="{{ seg.id }}" {% if GET.segment == seg.id|stringformat:'s' %}selected{% endif %}>{{ seg.name }}</option>{% endfor %}</select></div>
+      <div><label>Source</label><select name="source"><option value="">All</option>{% for s in sources %}<option value="{{ s }}" {% if GET.source == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+      <div><label>Work profile</label><input type="text" name="work_profile" value="{{ GET.work_profile }}"></div>
+      <div><label>Follow-up</label><select name="followup"><option value="">Any</option><option value="today" {% if GET.followup == 'today' %}selected{% endif %}>Today</option><option value="overdue" {% if GET.followup == 'overdue' %}selected{% endif %}>Overdue</option><option value="upcoming" {% if GET.followup == 'upcoming' %}selected{% endif %}>Upcoming</option></select></div>
+      <div><label>Has lead</label><select name="has_lead"><option value="">Any</option><option value="yes" {% if GET.has_lead == 'yes' %}selected{% endif %}>Yes</option><option value="no" {% if GET.has_lead == 'no' %}selected{% endif %}>No</option></select></div>
+      <div><label>Created from</label><input type="text" name="created_from" value="{{ GET.created_from }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div><label>Created to</label><input type="text" name="created_to" value="{{ GET.created_to }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+      <div class="filter-actions">
+        <button class="btn-primary btn-sm">Apply Filters</button>
+        <a href="{{ request.path }}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a>
+        {% if can_export %}<a href="{% url 'contacts_export' %}?{{ querystring }}" class="btn-secondary btn-sm" style="text-decoration:none;">Export CSV</a>
+        <a href="{% url 'contacts_export' %}?{{ querystring }}{% if querystring %}&{% endif %}format=xlsx" class="btn-secondary btn-sm" style="text-decoration:none;">Export Excel</a>{% endif %}
+        {% if is_admin_view and total_count %}<a href="{% url 'bulk_assign' %}?model=contact&query={{ querystring|urlencode }}" class="btn-secondary btn-sm" style="text-decoration:none;">Distribute filtered contacts…</a>{% endif %}
+      </div>
+    </div>
+  </form>
+  {% if contacts %}
+  {% include "partials/bulk_bar.html" with model_name="contact" all_segments=segments %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th style="width:34px;"><input type="checkbox" id="checkAll" form="bulkForm"></th><th>Name</th><th>Phone</th><th>Email</th><th>City</th><th>Work Profile</th><th>Status</th><th>Segments</th><th>Batch</th><th>Reference By</th><th>Assigned To</th><th>Created</th></tr></thead>
+    <tbody>{% for c in contacts %}<tr>
+      <td><input type="checkbox" class="row-check" name="ids" value="{{ c.pk }}" form="bulkForm"></td>
+      <td><a href="{% url 'contact_detail' c.pk %}" class="link">{{ c.name }}</a></td>
+      <td><a href="tel:{{ c.phone }}" class="link">{{ c.phone }}</a></td><td>{{ c.email|default:"—" }}</td><td>{{ c.city|default:"—" }}</td><td>{{ c.work_profile|default:"—" }}</td>
+      <td><span class="badge {% if c.status == 'interested' or c.status == 'converted' %}ok{% elif c.status == 'not_interested' %}bad{% elif c.status == 'callback' %}warn{% endif %}">{{ c.get_status_display }}</span></td>
+      <td class="nowrap">{% for seg in c.segments.all %}<span class="badge info" style="margin:1px;">{{ seg.name }}</span>{% empty %}—{% endfor %}</td>
+      <td class="mono">{{ c.import_batch.code|default:"—" }}</td>
+      <td>{% if c.reference_by %}{{ c.reference_by.get_full_name|default:c.reference_by.username }}{% else %}—{% endif %}</td>
+      <td>{% if c.current_assigned_to %}{{ c.current_assigned_to.get_full_name|default:c.current_assigned_to.username }}{% else %}—{% endif %}</td>
+      <td class="nowrap">{{ c.created_at|date:"d/m/Y" }}</td></tr>{% endfor %}</tbody></table></div>
+  {% include "partials/pagination.html" %}
+  {% else %}<div class="empty-state"><h3>No contacts found</h3><p>{% if is_admin_view %}Import a CSV/Excel file to add contacts.{% else %}Contacts assigned to you will appear here.{% endif %}</p></div>{% endif %}
+</div>
+{% endblock %}

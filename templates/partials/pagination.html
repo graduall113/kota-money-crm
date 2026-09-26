@@ -1,0 +1,19 @@
+{% if page.paginator.num_pages > 1 or page.paginator.count > 10 %}
+<div class="pagination">
+  <div>Showing {{ page.start_index }}–{{ page.end_index }} of {{ page.paginator.count }}
+    <label class="per-page-select">Per page
+      <select data-base-qs="{{ querystring }}" onchange="window.location.search = (this.dataset.baseQs ? this.dataset.baseQs + '&' : '') + 'per_page=' + this.value">
+        <option value="10" {% if page.paginator.per_page == 10 %}selected{% endif %}>10</option>
+        <option value="25" {% if page.paginator.per_page == 25 %}selected{% endif %}>25</option>
+        <option value="50" {% if page.paginator.per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if page.paginator.per_page == 100 %}selected{% endif %}>100</option>
+      </select>
+    </label>
+  </div>
+  <div class="pages">
+    {% if page.has_previous %}<a href="?{{ querystring }}{% if querystring %}&{% endif %}page={{ page.previous_page_number }}">← Prev</a>{% else %}<a class="disabled">← Prev</a>{% endif %}
+    <span class="cur">Page {{ page.number }} / {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?{{ querystring }}{% if querystring %}&{% endif %}page={{ page.next_page_number }}">Next →</a>{% else %}<a class="disabled">Next →</a>{% endif %}
+  </div>
+</div>
+{% endif %}

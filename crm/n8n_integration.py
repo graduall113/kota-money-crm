@@ -68,7 +68,13 @@ def send_lead_to_n8n(lead):
     the calling view can always show the user a clean message instead of
     a Django error page.
     """
-    webhook_url = getattr(settings, "N8N_LEAD_WEBHOOK_URL", "")
+    # Single source of truth: the URL an admin saved in Settings → n8n, falling
+    # back to settings.N8N_LEAD_WEBHOOK_URL (env var) when none is saved.
+    from .settings_store import get_bool, get_n8n_webhook_url
+
+    if not get_bool("n8n_enabled"):
+        return False, "n8n integration is switched off in Settings."
+    webhook_url = get_n8n_webhook_url()
 
     if not webhook_url:
         error_message = "N8N_LEAD_WEBHOOK_URL is not configured."

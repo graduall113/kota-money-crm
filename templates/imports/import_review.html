@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Review duplicates · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Review duplicates</h1><p><span class="mono">{{ batch.code }}</span> · {{ undecided }} undecided. Compare the incoming row with the contact already in the CRM.</p></div>
+<div class="panel">
+  <div class="panel-body"><form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="op" value="bulk">
+    <div class="field-group"><label>Apply to all undecided rows</label><select name="decision"><option value="skip">Skip</option><option value="update">Update existing</option><option value="new">Import as new</option></select></div>
+    <button class="btn-secondary btn-sm">Apply to all</button></form></div>
+  <form method="post">{% csrf_token %}<input type="hidden" name="op" value="page">
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Row</th><th>Incoming</th><th>Existing contact</th><th>Decision</th></tr></thead><tbody>
+  {% for r in rows %}<tr><td>{{ r.row_number }}</td>
+    <td>{{ r.data.name }}<br><span class="muted">{{ r.data.phone }} {{ r.data.email }} {{ r.data.city }}</span></td>
+    <td><a class="link" target="_blank" href="{% url 'contact_detail' r.existing_contact_id %}">{{ r.existing_contact.name }}</a><br><span class="muted">{{ r.existing_contact.phone }} {{ r.existing_contact.email }} {{ r.existing_contact.city }}</span></td>
+    <td><select name="d_{{ r.pk }}" style="min-width:150px;">{% for k, l in r.DECISION_CHOICES %}<option value="{{ k }}" {% if r.decision == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">Nothing left to review.</td></tr>{% endfor %}</tbody></table></div>
+  {% include "partials/pagination.html" %}
+  <div class="panel-body"><button class="btn-secondary btn-sm">Save decisions on this page</button></div></form>
+  <div class="panel-body" style="border-top:1px solid var(--border);"><form method="post" class="inline-form">{% csrf_token %}
+    <button class="btn-primary btn-sm" name="op" value="apply">Apply decisions made so far</button>
+    <button class="btn-secondary btn-sm" name="op" value="finish">Finish — skip all undecided</button></form></div>
+</div>
+{% endblock %}

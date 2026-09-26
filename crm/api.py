@@ -177,6 +177,22 @@ def create_lead(request):
     except Exception:
         return _error("Database error while creating the lead.", status=500)
 
+    # Timeline + assignment history for API-created leads (best effort).
+    try:
+        from .models import AssignmentHistory, user_label
+        from .services import log_activity, log_audit
+
+        if assigned_to_user:
+            lead.original_assigned_to = assigned_to_user
+            lead.save(update_fields=["original_assigned_to"])
+            AssignmentHistory.objects.create(
+                lead=lead, action=AssignmentHistory.ACTION_ASSIGN, to_user=assigned_to_user,
+                to_name=user_label(assigned_to_user), changed_by_name="n8n", reason="Lead created via n8n")
+        log_activity(None, "created", "Lead created via n8n form", lead=lead)
+        log_audit(None, "lead_created", f"{lead.display_id} created via n8n API", {}, "lead", lead.pk)
+    except Exception:  # never fail the webhook because of bookkeeping
+        pass
+
     # 7. Return JSON success response.
     return JsonResponse(
         {"success": True, "message": "Lead created successfully", "lead_id": lead.pk},

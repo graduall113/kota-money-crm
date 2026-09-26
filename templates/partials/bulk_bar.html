@@ -1,0 +1,73 @@
+{# Bulk action bar. Records are re-derived on the server from the user's authorized set. #}
+<form method="post" action="{% url 'bulk_action' model_name %}" id="bulkForm">
+  {% csrf_token %}
+  <input type="hidden" name="scope_type" id="bulkScope" value="ids">
+  <input type="hidden" name="query" value="{{ querystring }}">
+  <input type="hidden" name="expected_count" value="{{ total_count }}">
+  <div class="select-all-note" id="selectAllNote">
+    All {{ page.object_list|length }} on this page are selected.
+    <a href="#" class="link" id="selectAllFiltered">Select all {{ total_count }} matching records</a>
+  </div>
+  <div class="bulk-bar" id="bulkBar">
+    <span class="bulk-count"><span id="bulkCount">0</span> selected</span>
+    <select name="action" id="bulkAction" required>
+      <option value="">Bulk action…</option>
+      {% if is_admin_view %}<option value="assign">Assign / reassign to</option>{% endif %}
+      <option value="transfer">Transfer to</option>
+      <option value="status">Change status</option>
+      <option value="followup">Set follow-up</option>
+      {% if is_admin_view and model_name == "contact" %}<option value="add_to_segment">Add to Segment…</option>{% endif %}
+      {% if is_admin_view %}<option value="delete">Delete…</option>{% endif %}
+    </select>
+    <div class="bulk-fields">
+      <select name="to_user" data-for="assign transfer">
+        <option value="">Choose staff…</option>
+        {% for s in bulk_staff %}<option value="{{ s.id }}">{{ s.get_full_name|default:s.username }}</option>{% endfor %}
+      </select>
+      <input type="text" name="reason" placeholder="Reason (optional)" data-for="assign transfer">
+      <select name="status" data-for="status">
+        <option value="">Choose status…</option>
+        {% for key, label in status_choices %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+      </select>
+      <input type="text" name="date" data-for="followup" placeholder="DD/MM/YYYY" class="date-text">
+      <input type="time" name="time" data-for="followup">
+      <input type="text" name="notes" placeholder="Follow-up notes" data-for="followup">
+      <select name="segment_id" data-for="add_to_segment">
+        <option value="">Choose segment…</option>
+        {% for seg in all_segments %}<option value="{{ seg.id }}">{{ seg.name }}</option>{% endfor %}
+      </select>
+      <input type="text" name="new_segment" placeholder="…or new segment name" data-for="add_to_segment">
+    </div>
+    <button type="submit" class="btn-primary btn-sm">Continue</button>
+  </div>
+</form>
+<script>
+(function () {
+  const form = document.getElementById('bulkForm'); if (!form) return;
+  const boxes = () => Array.from(document.querySelectorAll('input.row-check'));
+  const bar = document.getElementById('bulkBar'), count = document.getElementById('bulkCount');
+  const note = document.getElementById('selectAllNote'), scope = document.getElementById('bulkScope');
+  const master = document.getElementById('checkAll'), actionSel = document.getElementById('bulkAction');
+  function refresh() {
+    const n = boxes().filter(b => b.checked).length;
+    count.textContent = scope.value === 'filter' ? '{{ total_count }}' : n;
+    bar.classList.toggle('is-visible', n > 0 || scope.value === 'filter');
+    note.style.display = (n > 0 && n === boxes().length && scope.value !== 'filter' && {{ total_count }} > n) ? 'block' : 'none';
+    form.querySelectorAll('[data-for]').forEach(el => {
+      const on = el.dataset.for.split(' ').includes(actionSel.value);
+      el.style.display = on ? '' : 'none'; el.disabled = !on;
+    });
+  }
+  boxes().forEach(b => b.addEventListener('change', () => { scope.value = 'ids'; refresh(); }));
+  if (master) master.addEventListener('change', () => { scope.value = 'ids'; boxes().forEach(b => b.checked = master.checked); refresh(); });
+  actionSel.addEventListener('change', refresh);
+  document.getElementById('selectAllFiltered').addEventListener('click', e => {
+    e.preventDefault(); scope.value = 'filter'; boxes().forEach(b => b.disabled = true); refresh();
+    note.innerHTML = 'All {{ total_count }} matching records are selected. <a href="#" class="link" id="undoAll">Clear selection</a>';
+    note.style.display = 'block';
+    document.getElementById('undoAll').addEventListener('click', ev => { ev.preventDefault(); boxes().forEach(b => { b.disabled = false; b.checked = false; }); if (master) master.checked = false; scope.value = 'ids'; refresh(); });
+  });
+  form.addEventListener('submit', () => { boxes().forEach(b => { if (scope.value === 'filter') b.disabled = true; }); });
+  refresh();
+})();
+</script>

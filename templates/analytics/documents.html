@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Document Analytics · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Document checklist analytics</h1><p>Where documents are stuck, across the whole team. Admin-only.</p></div>
+<div class="panel">
+  <form method="get" class="filter-grid">
+    <div><label>Staff</label><select name="staff"><option value="">All</option>{% for s in staff_members %}<option value="{{ s.pk }}" {% if GET.staff == s.pk|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+    <div><label>Status</label><select name="doc_status"><option value="">All</option><option value="not_started" {% if GET.doc_status == 'not_started' %}selected{% endif %}>Not Started</option><option value="partial" {% if GET.doc_status == 'partial' %}selected{% endif %}>Partially Received</option><option value="complete" {% if GET.doc_status == 'complete' %}selected{% endif %}>Complete</option></select></div>
+    <div><label>Document</label><select name="document"><option value="">All</option>{% for d in doc_types %}<option value="{{ d.pk }}" {% if GET.document == d.pk|stringformat:'s' %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select></div>
+    <div><label>From</label><input type="text" name="from" value="{{ GET.from }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    <div><label>To</label><input type="text" name="to" value="{{ GET.to }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    <div class="filter-actions"><button class="btn-primary btn-sm">Apply Filters</button><a href="{% url 'document_analytics' %}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear</a></div>
+  </form>
+</div>
+<div class="stat-grid cols-6">
+  <div class="stat-card"><div class="stat-label">Total leads</div><div class="stat-value">{{ r.total }}</div></div>
+  <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value">{{ r.pending }}</div></div>
+  <div class="stat-card"><div class="stat-label">Not started</div><div class="stat-value">{{ r.not_started }}</div></div>
+  <div class="stat-card"><div class="stat-label">Partial</div><div class="stat-value">{{ r.partial }}</div></div>
+  <div class="stat-card"><div class="stat-label">Complete</div><div class="stat-value">{{ r.complete }}</div></div>
+</div>
+<div class="two-col">
+<div class="panel"><div class="panel-header"><h2>Documents most frequently pending</h2></div>
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Document</th><th>Pending</th><th>Received</th><th>Applicable</th></tr></thead><tbody>
+  {% for row in r.doc_rows %}<tr><td>{{ row.doc.name }}</td><td>{{ row.pending }}</td><td>{{ row.received }}</td><td>{{ row.applicable }}</td></tr>{% empty %}<tr><td colspan="4" class="muted">No data.</td></tr>{% endfor %}
+  </tbody></table></div></div>
+<div class="panel"><div class="panel-header"><h2>Staff-wise completion</h2></div>
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Staff</th><th>Leads</th><th>Complete</th><th>%</th></tr></thead><tbody>
+  {% for row in r.staff_rows %}<tr><td>{{ row.name }}</td><td>{{ row.n }}</td><td>{{ row.complete }}</td><td>{{ row.percent }}%</td></tr>{% empty %}<tr><td colspan="4" class="muted">No data.</td></tr>{% endfor %}
+  </tbody></table></div></div>
+</div>
+{% endblock %}

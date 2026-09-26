@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ contact.name }} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header with-actions">
+  <div><h1>{{ contact.name }}</h1><p><a class="link" href="tel:{{ contact.phone }}">{{ contact.phone }}</a> · <span class="badge">{{ contact.get_status_display }}</span></p></div>
+  <div class="page-actions">{% if can_edit and contact.status != 'converted' %}<a class="btn-primary" href="{% url 'lead_create' %}?from_contact={{ contact.pk }}">Convert to lead</a>{% endif %}</div>
+</div>
+<div class="two-col"><div class="stack">
+  <div class="panel"><div class="panel-header"><h2>Contact details</h2></div><div class="panel-body"><dl class="kv-grid">
+    <div><dt>Email</dt><dd>{{ contact.email|default:"—" }}</dd></div><div><dt>City</dt><dd>{{ contact.city|default:"—" }}</dd></div><div><dt>Work Profile</dt><dd>{{ contact.work_profile|default:"—" }}</dd></div>
+    <div style="grid-column: span 3;"><dt>Address</dt><dd style="white-space:pre-wrap; word-break:break-word;">{{ contact.address|default:"—" }}</dd></div>
+    <div><dt>Income</dt><dd>{{ contact.income|default:"—" }}</dd></div><div><dt>Requirement</dt><dd>{{ contact.requirement|default:"—" }}</dd></div>
+    <div><dt>Loan Amount</dt><dd>{% if contact.loan_amount %}₹{{ contact.loan_amount }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Source</dt><dd>{{ contact.source|default:"—" }}</dd></div><div><dt>Import batch</dt><dd class="mono">{{ contact.import_batch.code|default:"—" }}</dd></div>
+    <div><dt>Reference By</dt><dd>{% if contact.reference_by %}{{ contact.reference_by.get_full_name|default:contact.reference_by.username }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Current Assigned To</dt><dd>{% if contact.current_assigned_to %}{{ contact.current_assigned_to.get_full_name|default:contact.current_assigned_to.username }}{% else %}Unassigned{% endif %}</dd></div>
+    <div><dt>Created / Updated</dt><dd>{{ contact.created_at|date:"d/m/Y" }} / {{ contact.updated_at|date:"d/m/Y" }}</dd></div>
+    {% if contact.notes %}<div style="grid-column: span 3;"><dt>Notes</dt><dd style="white-space:pre-wrap; word-break:break-word;">{{ contact.notes }}</dd></div>{% endif %}
+  </dl>
+  {% if leads %}<p style="margin-top:16px;"><strong>Leads:</strong> {% for l in leads %}<a class="link mono" href="{% url 'lead_detail' l.pk %}">{{ l.display_id }}</a> {% endfor %}</p>{% endif %}</div></div>
+
+  {% if contact.extra_data %}
+  <div class="panel"><div class="panel-header"><h2>Additional Information</h2></div><div class="panel-body">
+    <dl class="kv-grid">
+      {% for key, value in contact.extra_data.items %}
+      <div><dt>{{ key }}</dt><dd style="word-break:break-word;">{{ value|default:"—" }}</dd></div>
+      {% endfor %}
+    </dl>
+    <p class="help-text" style="margin-top:10px;">Preserved from the original imported spreadsheet — everything from the file is kept, even columns without a dedicated CRM field.</p>
+  </div></div>
+  {% endif %}
+
+  <div class="panel"><div class="panel-header"><h2>Segments</h2>
+    {% if can_manage_segments %}<div class="panel-actions"><button type="button" class="btn-secondary btn-sm" onclick="document.getElementById('addSegmentForm').classList.toggle('is-visible')">+ Add to Segment</button></div>{% endif %}</div>
+    <div class="panel-body">
+      {% for seg in contact.segments.all %}<a href="{% url 'segment_detail' seg.pk %}" class="badge info" style="margin:2px; text-decoration:none;">{{ seg.name }}</a>{% empty %}<span class="muted">Not in any segment yet.</span>{% endfor %}
+      {% if can_manage_segments %}
+      <form id="addSegmentForm" method="post" action="{% url 'segment_add_contact' contact.pk %}" class="inline-form" style="display:none; margin-top:14px;">
+        {% csrf_token %}
+        <div class="field-group"><label>Choose Segment</label><select name="segment_id"><option value="">— choose —</option>{% for seg in all_segments %}<option value="{{ seg.id }}">{{ seg.name }}</option>{% endfor %}</select></div>
+        <div class="field-group"><label>…or Create New Segment</label><input type="text" name="new_segment" placeholder="New segment name"></div>
+        <button class="btn-primary btn-sm">Add</button>
+      </form>
+      <style>#addSegmentForm.is-visible { display: flex !important; }</style>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="panel"><div class="panel-header"><h2>Assignment history</h2></div>
+    {% if history %}<div class="table-scroll"><table class="data-table"><thead><tr><th>When</th><th>Change</th><th>By</th><th>Reason</th></tr></thead><tbody>
+    {% for a in history %}<tr><td class="nowrap">{{ a.created_at|date:"d/m/Y, H:i" }}</td><td>{{ a.from_name|default:"Unassigned" }} → {{ a.to_name|default:"Unassigned" }}</td><td>{{ a.changed_by_name|default:"—" }}</td><td>{{ a.reason|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<div class="panel-body muted">Never assigned.</div>{% endif %}</div>
+</div><div class="stack">
+  {% if can_edit %}<div class="panel"><div class="panel-header"><h2>Update contact</h2></div><div class="panel-body">
+    <form method="post" action="{% url 'contact_action' contact.pk %}">{% csrf_token %}<input type="hidden" name="action" value="update">
+      <div class="field-group"><label>Status</label><select name="status">{% for k, l in status_choices %}{% if k != 'converted' or contact.status == 'converted' %}<option value="{{ k }}" {% if contact.status == k %}selected{% endif %}>{{ l }}</option>{% endif %}{% endfor %}</select></div>
+      <div class="field-group"><label>Notes</label><textarea name="notes" rows="3">{{ contact.notes }}</textarea></div>
+      <div class="inline-form"><div class="field-group"><label>Next follow-up</label><input type="text" name="next_followup_date" value="{{ contact.next_followup_date|date:'d/m/Y' }}" placeholder="DD/MM/YYYY" class="date-text"></div><div class="field-group"><label>Time</label><input type="time" name="next_followup_time" value="{{ contact.next_followup_time|time:'H:i' }}"></div></div>
+      <div class="field-group" style="margin-top:8px;"><input type="text" name="followup_notes" placeholder="Follow-up notes" value="{{ contact.followup_notes }}"></div>
+      <button class="btn-primary btn-sm">Save</button></form>
+    <form method="post" action="{% url 'contact_action' contact.pk %}" style="margin-top:10px;">{% csrf_token %}<input type="hidden" name="action" value="log_call"><button class="btn-secondary btn-sm">Log call</button></form>
+  </div></div>{% endif %}
+  {% if is_admin_view %}<div class="panel"><div class="panel-header"><h2>Assign</h2></div><div class="panel-body">
+    <form method="post" action="{% url 'contact_action' contact.pk %}">{% csrf_token %}<input type="hidden" name="action" value="assign">
+      <div class="field-group"><select name="to_user">{% for s in staff_members %}<option value="{{ s.id }}">{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+      <div class="field-group"><input type="text" name="reason" placeholder="Reason (optional)"></div><button class="btn-primary btn-sm">Assign</button></form></div></div>{% endif %}
+  <div class="panel"><div class="panel-header"><h2>Activity</h2></div><div class="panel-body">{% if timeline %}<ul class="timeline">{% for a in timeline %}<li><div class="t-date">{{ a.created_at|date:"d/m/Y, H:i" }} · {{ a.actor_name }}</div><div class="t-msg">{{ a.message }}</div></li>{% endfor %}</ul>{% else %}<span class="muted">No activity yet.</span>{% endif %}</div></div>
+</div></div>
+{% endblock %}

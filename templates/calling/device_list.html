@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Calling Devices · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Calling Devices</h1>
+  <p>Each Android device must be paired to exactly one staff account before its calls count anywhere. Revoking a device here stops it instantly — no more calls will be accepted from it.</p>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Pair a new device</h2></div>
+  <form method="post" action="{% url 'calling_device_pair' %}" class="inline-form" style="padding:16px 22px;">
+    {% csrf_token %}
+    <label>Staff
+      <select name="staff" required>
+        <option value="">Choose staff…</option>
+        {% for s in staff_members %}<option value="{{ s.pk }}">{{ s.get_full_name|default:s.username }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Label <input type="text" name="label" placeholder="e.g. Rahul's phone" maxlength="100"></label>
+    <button class="btn-primary btn-sm">Generate pairing code</button>
+  </form>
+  <p class="muted" style="padding:0 22px 16px;">The 6-digit code shown after this is valid for 10 minutes. Enter it once in the Android app's setup screen — after that, the device stays paired until you revoke it below.</p>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Devices</h2></div>
+  {% if devices %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Label</th><th>Staff</th><th>Status</th><th>Last Synced</th><th>Paired</th><th></th></tr></thead>
+    <tbody>
+      {% for d in devices %}
+      <tr>
+        <td>{{ d.label|default:"—" }}</td>
+        <td>{{ d.staff.get_full_name|default:d.staff.username }}</td>
+        <td>
+          {% if not d.is_active %}<span class="badge bad">Revoked</span>
+          {% elif d.is_paired %}<span class="badge ok">Paired</span>
+          {% elif d.pairing_code %}<span class="badge warn">Code: {{ d.pairing_code }} (10 min)</span>
+          {% else %}<span class="badge">Not paired</span>{% endif %}
+        </td>
+        <td>{{ d.last_seen|date:"d/m/Y, H:i"|default:"Never" }}</td>
+        <td>{{ d.paired_at|date:"d/m/Y"|default:"—" }}</td>
+        <td>
+          <form method="post" action="{% url 'calling_device_toggle' d.pk %}" style="display:inline;">
+            {% csrf_token %}
+            <button class="link" style="background:none;border:none;padding:0;cursor:pointer;">{% if d.is_active %}Revoke{% else %}Re-enable{% endif %}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <div class="empty-state">
+    <h3>No devices paired yet</h3>
+    <p>Generate a pairing code above to link your first telecaller's phone.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

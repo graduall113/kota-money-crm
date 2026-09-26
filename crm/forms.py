@@ -2,7 +2,8 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
 
-from .models import Lead, StaffProfile
+from .datefmt import DateTextField
+from .models import Lead, Segment, StaffProfile
 
 TEXT_WIDGET = {"class": "field-input"}
 
@@ -204,19 +205,8 @@ class LeadForm(forms.ModelForm):
     sets automatically and are not part of this form. See Lead model docs.
     """
 
-    form_date = forms.DateField(
-        label="Date",
-        input_formats=["%d/%m/%Y"],
-        # DateInput (not plain TextInput) so Django formats the *displayed*
-        # value as DD/MM/YYYY too (e.g. re-opening Edit Lead) — format=
-        # controls display, input_formats= controls parsing on submit.
-        # type="text" keeps it a plain text box, not a browser date picker.
-        widget=forms.DateInput(
-            format="%d/%m/%Y",
-            attrs={**TEXT_WIDGET, "type": "text", "placeholder": "DD/MM/YYYY", "autocomplete": "off"},
-        ),
-        error_messages={"invalid": "Enter the date as DD/MM/YYYY, e.g. 16/09/2026."},
-    )
+    form_date = DateTextField(label="Date")
+    next_followup_date = DateTextField(label="Next follow-up date", required=False)
     loan_amount = forms.DecimalField(
         label="Loan Amount",
         min_value=0,
@@ -238,8 +228,19 @@ class LeadForm(forms.ModelForm):
             "status",
             "reference_by_name",
             "assigned_to_name",
+            "email",
+            "city",
+            "source",
+            "interest",
+            "next_followup_date",
+            "next_followup_time",
+            "followup_notes",
         ]
         labels = {
+            "next_followup_date": "Next follow-up date",
+            "next_followup_time": "Next follow-up time",
+            "followup_notes": "Follow-up notes",
+            "source": "Lead source",
             "contact_number": "Contact No.",
             "bank_calling": "Bank Calling",
             "reference_by_name": "Reference by",
@@ -257,10 +258,27 @@ class LeadForm(forms.ModelForm):
             "status": forms.Select(attrs=TEXT_WIDGET),
             "reference_by_name": forms.TextInput(attrs=TEXT_WIDGET),
             "assigned_to_name": forms.TextInput(attrs=TEXT_WIDGET),
+            "email": forms.EmailInput(attrs=TEXT_WIDGET),
+            "city": forms.TextInput(attrs=TEXT_WIDGET),
+            "source": forms.TextInput(attrs=TEXT_WIDGET),
+            "interest": forms.Select(attrs=TEXT_WIDGET),
+            "next_followup_time": forms.TimeInput(format="%H:%M", attrs={**TEXT_WIDGET, "type": "time"}),
+            "followup_notes": forms.Textarea(attrs={**TEXT_WIDGET, "rows": 2}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, is_admin=False, **kwargs):
         super().__init__(*args, **kwargs)
+        # Admin-only: pick the CRM staff owner (the real, permission-driving assignee).
+        self.fields["assigned_to_user"] = forms.ModelChoiceField(
+            label="Assign to staff (CRM owner)", required=False,
+            queryset=User.objects.filter(staff_profile__status="active").order_by("first_name", "username"),
+            widget=forms.Select(attrs=TEXT_WIDGET), empty_label="— Unassigned —",
+        )
+        self.is_admin_form = is_admin
+        if not is_admin:
+            del self.fields["assigned_to_user"]
+        elif self.instance and self.instance.pk:
+            self.fields["assigned_to_user"].initial = self.instance.assigned_to_id
 
         # The n8n form makes every single field mandatory. Several of these
         # Lead model fields carry blank=True (to stay lenient for the
@@ -335,3 +353,55 @@ class LeadForm(forms.ModelForm):
         # Preserve exactly what was typed (including any leading zero /
         # formatting) — never coerce this into a number.
         return contact
+
+
+class TransferForm(forms.Form):
+    to_user = forms.ModelChoiceField(
+        queryset=User.objects.filter(staff_profile__status="active").order_by("first_name", "username"),
+        widget=forms.Select(attrs=TEXT_WIDGET), label="Transfer to",
+    )
+    reason = forms.CharField(max_length=300, required=False, label="Reason (optional)",
+                             widget=forms.TextInput(attrs={**TEXT_WIDGET, "placeholder": "e.g. Customer requested senior assistance"}))
+
+
+class DocumentTypeForm(forms.ModelForm):
+    class Meta:
+        from .models import DocumentType as _DT
+        model = _DT
+        fields = ["name", "category", "is_required", "is_default", "is_active"]
+        widgets = {"name": forms.TextInput(attrs=TEXT_WIDGET), "category": forms.TextInput(attrs=TEXT_WIDGET)}
+
+    def clean_name(self):
+        from .models import DocumentType
+        name = self.cleaned_data["name"].strip()
+        qs = DocumentType.objects.filter(name__iexact=name, is_archived=False)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError("A document with this name already exists.")
+        return name
+
+
+class ImportUploadForm(forms.Form):
+    file = forms.FileField(label="CSV or Excel file")
+    source_label = forms.CharField(max_length=100, required=False, label="Source label (optional)",
+                                   widget=forms.TextInput(attrs={**TEXT_WIDGET, "placeholder": "e.g. Facebook Ads Sept"}))
+
+
+class SegmentForm(forms.ModelForm):
+    class Meta:
+        model = Segment
+        fields = ["name", "description"]
+        widgets = {
+            "name": forms.TextInput(attrs={**TEXT_WIDGET, "placeholder": "e.g. Jaipur Leads"}),
+            "description": forms.Textarea(attrs={**TEXT_WIDGET, "rows": 3, "placeholder": "Optional"}),
+        }
+
+    def clean_name(self):
+        name = self.cleaned_data["name"].strip()
+        qs = Segment.objects.filter(name__iexact=name)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError("A segment with this name already exists.")
+        return name

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}New import · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>New import</h1><p>Step 1 of 4 — upload. Supports .csv, .xlsx and .xls (up to {{ max_mb }} MB).</p></div>
+<div class="panel" style="max-width:640px;"><div class="panel-body">
+  <form method="post" enctype="multipart/form-data">{% csrf_token %}
+    <div class="field-group"><label>{{ form.file.label }}</label><input type="file" name="file" accept=".csv,.xlsx,.xls" required>{% if form.file.errors %}<div class="field-error">{{ form.file.errors|striptags }}</div>{% endif %}</div>
+    <div class="field-group"><label>{{ form.source_label.label }}</label>{{ form.source_label }}<div class="help-text">Saved on every imported contact as its Source.</div></div>
+    <button class="btn-primary btn-inline">Upload &amp; continue</button> <a class="link" style="margin-left:14px;" href="{% url 'import_list' %}">Cancel</a>
+  </form></div></div>
+{% endblock %}

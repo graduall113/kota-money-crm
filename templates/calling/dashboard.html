@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Calling Analytics · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Calling Analytics</h1>
+  <p>{% if is_admin_view %}Automatically detected from every telecaller's Android call log — never a manual entry.{% else %}Your calling activity, automatically detected from your phone's call log.{% endif %}</p>
+</div>
+
+<div class="panel">
+  <form method="get" class="inline-form" style="padding:16px 22px;">
+    <label>Range
+      <select name="range" onchange="this.form.submit()">
+        <option value="today" {% if range == "today" %}selected{% endif %}>Today</option>
+        <option value="yesterday" {% if range == "yesterday" %}selected{% endif %}>Yesterday</option>
+        <option value="7d" {% if range == "7d" %}selected{% endif %}>Last 7 Days</option>
+        <option value="month" {% if range == "month" %}selected{% endif %}>This Month</option>
+        <option value="all" {% if range == "all" %}selected{% endif %}>All Time</option>
+      </select>
+    </label>
+    <label>From <input type="text" name="date_from" value="{{ GET.date_from }}" placeholder="DD/MM/YYYY" class="date-text"></label>
+    <label>To <input type="text" name="date_to" value="{{ GET.date_to }}" placeholder="DD/MM/YYYY" class="date-text"></label>
+    {% if is_admin_view %}
+    <label>Staff
+      <select name="staff" onchange="this.form.submit()">
+        <option value="">All Staff</option>
+        {% for s in staff_members %}<option value="{{ s.pk }}" {% if GET.staff == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    <button class="btn-secondary btn-sm">Apply</button>
+    {% if is_admin_view %}<a class="btn-secondary btn-sm" href="{% url 'calling_devices' %}" style="text-decoration:none;">Manage devices →</a>{% endif %}
+  </form>
+</div>
+
+<div class="stat-grid cols-3" style="margin-top:18px;">
+  <div class="stat-card"><div class="stat-label">Total Calls</div><div class="stat-value">{{ totals.total }}</div></div>
+  <div class="stat-card"><div class="stat-label">Answered</div><div class="stat-value">{{ totals.answered }}</div></div>
+  <div class="stat-card"><div class="stat-label">Successful Contacts</div><div class="stat-value">{{ totals.successful_contacts }}</div></div>
+</div>
+<div class="stat-grid cols-3" style="margin-top:10px;">
+  <div class="stat-card"><div class="stat-label">No Answer</div><div class="stat-value">{{ totals.missed }}</div></div>
+  <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value">{{ totals.rejected }}</div></div>
+  <div class="stat-card"><div class="stat-label">Busy</div><div class="stat-value">{{ totals.busy }}</div></div>
+</div>
+<div class="stat-grid cols-3" style="margin-top:10px;">
+  <div class="stat-card"><div class="stat-label">Failed / Cancelled</div><div class="stat-value">{{ totals.failed|add:totals.cancelled }}</div></div>
+  <div class="stat-card"><div class="stat-label">Total Talk Time</div><div class="stat-value">{{ totals.talk_time }}</div></div>
+  <div class="stat-card"><div class="stat-label">Avg Call Duration</div><div class="stat-value">{{ totals.avg_duration }}</div></div>
+</div>
+<p class="muted" style="margin-top:8px;">Only calls to/from a lead or contact currently assigned to that staff member are counted here — personal, unknown, unassigned, and privileged-number calls never enter these numbers. Only a reliably <strong>answered outgoing</strong> call can move a lead from New → Contacted.</p>
+
+{% if is_admin_view %}
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Calling today, by telecaller</h2></div>
+  {% if staff_rows %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Staff</th><th>Total Calls</th><th>Answered</th><th>Not Connected</th><th>Talk Time</th><th>Avg Duration</th><th>Longest</th><th>Shortest</th></tr></thead>
+    <tbody>
+      {% for r in staff_rows %}
+      <tr>
+        <td><a class="link" href="?staff={{ r.staff_id }}{% if GET.range %}&range={{ GET.range }}{% endif %}">{{ r.name }}</a></td>
+        <td>{{ r.total }}</td>
+        <td><span class="badge ok">{{ r.answered }}</span></td>
+        <td><span class="badge bad">{{ r.not_connected }}</span></td>
+        <td>{{ r.talk_time }}</td>
+        <td>{{ r.avg_duration }}</td>
+        <td>{{ r.longest }}</td>
+        <td>{{ r.shortest }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <div class="empty-state">
+    <h3>No calls synced yet</h3>
+    <p>Pair each telecaller's Android device from <a class="link" href="{% url 'calling_devices' %}">Calling Devices</a> to start seeing real numbers here.</p>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Call history</h2></div>
+  {% if calls %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Time</th>{% if is_admin_view %}<th>Staff</th>{% endif %}<th>Customer</th><th>Number</th><th>Status</th><th>Duration</th></tr></thead>
+    <tbody>
+      {% for c in calls %}
+      <tr>
+        <td class="nowrap">{{ c.started_at|date:"d/m/Y, H:i" }}</td>
+        {% if is_admin_view %}<td>{{ c.staff.get_full_name|default:c.staff.username }}</td>{% endif %}
+        <td>{% if c.lead %}<a class="link" href="{% url 'lead_detail' c.lead.pk %}">{{ c.lead.customer_name }}</a>{% elif c.contact %}<a class="link" href="{% url 'contact_detail' c.contact.pk %}">{{ c.contact.name }}</a>{% else %}Unknown{% endif %}</td>
+        <td class="mono">{{ c.phone_number }}</td>
+        <td><span class="badge {% if c.status == 'answered' %}ok{% else %}bad{% endif %}">{{ c.get_status_display }}</span></td>
+        <td>{{ c.duration_label }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto;"><path d="M6.5 3.5c1 0 1.9.7 2.2 1.7l.7 2.1c.2.7 0 1.5-.5 2l-1.2 1.2a13 13 0 0 0 5.8 5.8l1.2-1.2c.5-.5 1.3-.7 2-.5l2.1.7c1 .3 1.7 1.2 1.7 2.2v1.8c0 1.4-1.2 2.5-2.6 2.4-8-.5-14.4-6.9-14.9-14.9C3 5.7 4.1 4.5 5.5 4.5h1Z"/></svg>
+    <h3>No calls in this range</h3>
+    <p>Once a paired Android device syncs, real calls will show up here automatically.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

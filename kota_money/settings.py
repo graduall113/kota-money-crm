@@ -4,7 +4,6 @@ Django settings for the Kota Money CRM project.
 
 import os
 from pathlib import Path
-import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -13,17 +12,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # -----------------------------------------------------------------
 # Replace this with a fresh secret before deploying:
 #   python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-change-me-before-deploying")
+SECRET_KEY = "django-insecure-change-me-before-deploying"
 
-DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
+DEBUG = True
 
-ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-]
-
-if os.environ.get("RENDER_EXTERNAL_HOSTNAME"):
-    ALLOWED_HOSTS.append(os.environ["RENDER_EXTERNAL_HOSTNAME"])  # tighten this before deploying to production
+ALLOWED_HOSTS = ["*"]  # tighten this before deploying to production
 
 # -----------------------------------------------------------------
 # APPS
@@ -42,7 +35,6 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -75,6 +67,11 @@ WSGI_APPLICATION = "kota_money.wsgi.application"
 # -----------------------------------------------------------------
 # DATABASE
 # -----------------------------------------------------------------
+# Uses DATABASE_URL when set (Render/Postgres in production); falls back to
+# local SQLite for local development. Works the same way on both backends —
+# no SQLite-only queries are used anywhere in the app.
+import dj_database_url  # noqa: E402
+
 DATABASES = {
     "default": dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
@@ -106,16 +103,8 @@ USE_TZ = True
 # -----------------------------------------------------------------
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
-STATIC_ROOT = BASE_DIR / "staticfiles"
 
-STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-}
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # -----------------------------------------------------------------
 # AUTH
@@ -162,3 +151,17 @@ N8N_LEAD_WEBHOOK_URL = os.environ.get(
     "N8N_LEAD_WEBHOOK_URL",
     "https://soyacil.app.n8n.cloud/webhook/kota-money-lead",
 )
+
+# -----------------------------------------------------------------
+# IMPORTS / BACKGROUND WORK
+# -----------------------------------------------------------------
+# Where uploaded CSV/Excel import files are kept while being processed. This is
+# NOT publicly served. (These are admin data-import sheets — the CRM never stores
+# customer document files.)
+IMPORT_UPLOAD_DIR = Path(os.environ.get("IMPORT_UPLOAD_DIR", BASE_DIR / "import_uploads"))
+
+# Run bulk jobs / imports inline instead of in a worker thread (used by tests).
+CRM_JOBS_INLINE = False
+
+# Uploaded files above this size are streamed to a temp file by Django.
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024

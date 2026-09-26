@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Performance Analytics · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Performance analytics</h1><p>Per-telecaller performance across leads and contacts. Admin-only.</p></div>
+<div class="panel">
+  <form method="get" class="inline-form" style="padding:16px 22px;"><label>From <input type="text" name="from" value="{{ GET.from }}" placeholder="DD/MM/YYYY" class="date-text"></label><label>To <input type="text" name="to" value="{{ GET.to }}" placeholder="DD/MM/YYYY" class="date-text"></label><button class="btn-secondary btn-sm">Apply</button><a class="btn-secondary btn-sm" href="{% url 'document_analytics' %}" style="text-decoration:none;">Document report →</a></form>
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Staff</th><th>Assigned</th><th>Contacted</th><th>Interested</th><th>Not Interested</th><th>Docs Pending</th><th>Docs Complete</th><th>Meeting</th><th>Processing</th><th>Approved</th><th>Rejected</th><th>Converted</th><th>Transferred</th><th>Follow-ups due</th></tr></thead><tbody>
+  {% for r in rows %}<tr {% if not r.active %}style="opacity:.55;"{% endif %}>
+    <td><a class="link" href="{% url 'staff_detail' r.user.pk %}">{{ r.name }}</a>{% if not r.active %} <span class="badge">inactive</span>{% endif %}</td>
+    <td>{{ r.assigned }}</td><td>{{ r.contacted }}</td><td>{{ r.interested }}</td><td>{{ r.not_interested }}</td>
+    <td>{{ r.docs_pending }}</td><td>{{ r.docs_complete }}</td><td>{{ r.meeting }}</td><td>{{ r.processing }}</td><td>{{ r.approved }}</td><td>{{ r.rejected }}</td><td>{{ r.converted }}</td><td>{{ r.transferred }}</td><td>{{ r.followups }}</td></tr>
+  {% empty %}<tr><td colspan="13" class="muted">No staff to report on yet.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}

@@ -40,9 +40,21 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-6.4 7-6.4s7 2.8 7 6.4"/></svg>
         My Leads
       </a>
+      <a href="{% url 'contacts' %}" class="nav-link {% if active_page == 'contacts' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="10" r="2.6"/><path d="M8 17c.6-2 2.2-3 4-3s3.4 1 4 3"/></svg>
+        Contacts
+      </a>
+      <a href="{% url 'segment_list' %}" class="nav-link {% if active_page == 'segments' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="12" cy="17" r="3"/><path d="M9 9l2 6M15 9l-2 6"/></svg>
+        Segments
+      </a>
       <a href="{% url 'followups' %}" class="nav-link {% if active_page == 'followups' %}is-active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.5V12l3 2"/></svg>
         Follow-ups
+      </a>
+      <a href="{% url 'calling_dashboard' %}" class="nav-link {% if active_page == 'calling' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5c1 0 1.9.7 2.2 1.7l.7 2.1c.2.7 0 1.5-.5 2l-1.2 1.2a13 13 0 0 0 5.8 5.8l1.2-1.2c.5-.5 1.3-.7 2-.5l2.1.7c1 .3 1.7 1.2 1.7 2.2v1.8c0 1.4-1.2 2.5-2.6 2.4-8-.5-14.4-6.9-14.9-14.9C3 5.7 4.1 4.5 5.5 4.5h1Z"/></svg>
+        Calling
       </a>
 
       {% if profile.is_admin %}
@@ -51,6 +63,26 @@
       <a href="{% url 'staff_list' %}" class="nav-link {% if active_page == 'staff' %}is-active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2.5 19c0-3.3 2.9-5.6 6.5-5.6s6.5 2.3 6.5 5.6"/><circle cx="17.5" cy="8.5" r="2.3"/><path d="M16 13.6c2.7.4 4.5 2.3 4.5 5"/></svg>
         Staff
+      </a>
+      <a href="{% url 'calling_devices' %}" class="nav-link {% if active_page == 'calling_devices' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.2h2"/></svg>
+        Calling Devices
+      </a>
+      <a href="{% url 'calling_privileged_numbers' %}" class="nav-link {% if active_page == 'calling_privileged' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 4 6v6c0 5 3.4 8 8 9.5 4.6-1.5 8-4.5 8-9.5V6l-8-3.5Z"/></svg>
+        Privileged Numbers
+      </a>
+      <a href="{% url 'import_list' %}" class="nav-link {% if active_page == 'imports' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></svg>
+        Import Data
+      </a>
+      <a href="{% url 'performance' %}" class="nav-link {% if active_page == 'analytics' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/></svg>
+        Analytics
+      </a>
+      <a href="{% url 'audit_log' %}" class="nav-link {% if active_page == 'audit' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>
+        Audit Log
       </a>
       <a href="{% url 'reports' %}" class="nav-link {% if active_page == 'reports' %}is-active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M11 20V4M18 20v-7"/></svg>

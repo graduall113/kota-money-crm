@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == "edit" %}Edit Segment{% else %}Create Segment{% endif %} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{% if mode == "edit" %}Edit "{{ segment.name }}"{% else %}Create Segment{% endif %}</h1><p>A segment is simply a named container of contacts — no conditions, no automation.</p></div>
+<div class="panel" style="max-width:560px;"><div class="panel-body">
+  <form method="post">{% csrf_token %}
+    <div class="field-group"><label>Segment Name *</label>{{ form.name }}{% if form.name.errors %}<div class="field-error">{{ form.name.errors|striptags }}</div>{% endif %}</div>
+    <div class="field-group"><label>Description (optional)</label>{{ form.description }}</div>
+    <button class="btn-primary btn-inline">Save Segment</button>
+    <a class="link" style="margin-left:14px;" href="{% if segment %}{% url 'segment_detail' segment.pk %}{% else %}{% url 'segment_list' %}{% endif %}">Cancel</a>
+  </form>
+</div></div>
+{% endblock %}

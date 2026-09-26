@@ -4,7 +4,7 @@
 <div class="page-header">
   <h1>{% if mode == "edit" %}Edit Lead{% else %}Add New Lead{% endif %}</h1>
   {% if mode == "edit" %}
-  <p>Updating {{ lead.customer_name }} — saved straight to the CRM database.</p>
+  <p>Updating {{ lead.customer_name }} ({{ lead.display_id }}) — saved straight to the CRM database.</p>
   {% else %}
   <p>Saved straight to the CRM, then sent to n8n for Gmail / Sheets / WhatsApp automation.</p>
   {% endif %}
@@ -12,8 +12,10 @@
 
 <div class="panel" style="max-width:640px;">
   <div style="padding:22px;">
+    {% if from_contact %}<div class="alert alert-info">Converting contact <strong>{{ from_contact.name }}</strong> into a lead. Details are pre-filled.</div>{% endif %}
     <form method="post">
       {% csrf_token %}
+      {% if from_contact %}<input type="hidden" name="from_contact" value="{{ from_contact.pk }}">{% endif %}
 
       <div class="field-group">
         <label for="{{ form.form_date.id_for_label }}">Date (DD/MM/YYYY)</label>
@@ -81,8 +83,21 @@
         {% if form.assigned_to_name.errors %}<div class="field-error">{{ form.assigned_to_name.errors|striptags }}</div>{% endif %}
       </div>
 
+      <h3 style="font-size:14px; margin:26px 0 12px; color:var(--text-muted); font-weight:600;">Additional details (optional)</h3>
+      <div class="field-group"><label for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>{{ form.email }}{% if form.email.errors %}<div class="field-error">{{ form.email.errors|striptags }}</div>{% endif %}</div>
+      <div class="field-group"><label for="{{ form.city.id_for_label }}">{{ form.city.label }}</label>{{ form.city }}</div>
+      <div class="field-group"><label for="{{ form.source.id_for_label }}">{{ form.source.label }}</label>{{ form.source }}</div>
+      <div class="field-group"><label for="{{ form.interest.id_for_label }}">{{ form.interest.label }}</label>{{ form.interest }}</div>
+      <div class="field-group"><label for="{{ form.next_followup_date.id_for_label }}">{{ form.next_followup_date.label }}</label>{{ form.next_followup_date }}</div>
+      <div class="field-group"><label for="{{ form.next_followup_time.id_for_label }}">{{ form.next_followup_time.label }}</label>{{ form.next_followup_time }}</div>
+      <div class="field-group"><label for="{{ form.followup_notes.id_for_label }}">{{ form.followup_notes.label }}</label>{{ form.followup_notes }}</div>
+      {% if form.assigned_to_user %}
+      <div class="field-group"><label for="{{ form.assigned_to_user.id_for_label }}">{{ form.assigned_to_user.label }}</label>{{ form.assigned_to_user }}
+        <div class="help-text">Who works this lead in the CRM. "Reference by" stays with whoever created it.</div></div>
+      {% endif %}
+
       <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px;">{% if mode == "edit" %}Update Lead{% else %}Create Lead{% endif %}</button>
-      <a href="{% if mode == 'edit' %}{% url 'all_leads' %}{% else %}{% url 'dashboard' %}{% endif %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
+      <a href="{% if mode == 'edit' %}{% url 'lead_detail' lead.pk %}{% else %}{% url 'dashboard' %}{% endif %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
     </form>
   </div>
 </div>

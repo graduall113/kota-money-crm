@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Delete Segment · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Delete "{{ segment.name }}"?</h1></div>
+<div class="panel confirm-box danger"><div class="panel-body">
+  <p class="big">This removes the segment and its {{ count }} membership{{ count|pluralize }}. <strong>Contacts themselves are never deleted.</strong></p>
+  <form method="post">{% csrf_token %}
+    <button class="btn-danger">Yes, delete this segment</button>
+    <a class="link" style="margin-left:14px;" href="{% url 'segment_detail' segment.pk %}">Cancel</a>
+  </form>
+</div></div>
+{% endblock %}

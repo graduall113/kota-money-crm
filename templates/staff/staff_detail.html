@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ target.get_full_name|default:target.username }} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header with-actions"><div><h1>{{ target.get_full_name|default:target.username }}</h1><p>{{ target.email }} · {{ target.staff_profile.get_role_display }} · <span class="badge {% if target.staff_profile.is_account_active %}ok{% endif %}">{{ target.staff_profile.get_status_display }}</span></p></div>
+  <div class="page-actions"><a class="btn-secondary" href="{% url 'staff_edit' target.pk %}">Edit</a><a class="btn-secondary" href="{% url 'performance' %}">Performance →</a></div></div>
+<div class="stat-grid cols-3">
+  <div class="stat-card"><div class="stat-label">Assigned leads</div><div class="stat-value">{{ leads_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">Assigned contacts</div><div class="stat-value">{{ contacts_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">Referred leads</div><div class="stat-value">{{ referred_count }}</div></div>
+</div>
+{% if perf %}
+<div class="panel"><div class="panel-header"><h2>Performance snapshot</h2></div><div class="panel-body"><dl class="kv-grid">
+  <div><dt>Contacted</dt><dd>{{ perf.contacted }}</dd></div><div><dt>Interested</dt><dd>{{ perf.interested }}</dd></div>
+  <div><dt>Docs pending</dt><dd>{{ perf.docs_pending }}</dd></div><div><dt>Docs complete</dt><dd>{{ perf.docs_complete }}</dd></div>
+  <div><dt>Approved</dt><dd>{{ perf.approved }}</dd></div><div><dt>Transferred (from)</dt><dd>{{ perf.transferred }}</dd></div>
+</dl></div></div>
+{% endif %}
+{% endblock %}

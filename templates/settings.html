@@ -1,28 +1,61 @@
 {% extends "base.html" %}
 {% block title %}Settings · Kota Money CRM{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>Settings</h1>
-  <p>Workspace and integration preferences.</p>
-</div>
-<div class="panel">
-  <div class="panel-header"><h2>Account</h2></div>
-  <div style="padding:22px;">
-    <p style="margin:0 0 4px; font-size:13px; color:var(--text-muted);">Signed in as</p>
-    <p style="margin:0 0 18px;">{{ request.user.email }} &middot; <span style="text-transform:capitalize;">{{ request.user.staff_profile.get_role_display }}</span></p>
-    <a href="{% url 'profile' %}" class="link">Edit profile →</a>
-  </div>
-</div>
+<div class="page-header"><h1>Settings</h1><p>{% if is_admin_view %}Configure the CRM without touching source code.{% else %}Your account settings.{% endif %}</p></div>
+<div class="settings-layout">
+  <nav class="settings-nav">
+    {% for key, label in sections %}<a href="?section={{ key }}" class="{% if section == key %}is-active{% endif %}">{{ label }}</a>{% endfor %}
+    {% if is_admin_view %}<a href="{% url 'document_settings' %}">Document Checklist →</a>{% endif %}
+  </nav>
+  <div class="panel"><div class="panel-body">
+    {% if section == "account" %}
+      <h2 style="margin-top:0;">Account</h2>
+      <dl class="kv-grid"><div><dt>Name</dt><dd>{{ request.user.get_full_name|default:request.user.username }}</dd></div>
+        <div><dt>Email</dt><dd>{{ request.user.email }}</dd></div>
+        <div><dt>Role</dt><dd>{{ request.user.staff_profile.get_role_display }}</dd></div></dl>
+      <p style="margin-top:16px;"><a class="link" href="{% url 'profile' %}">Edit profile →</a></p>
 
-{% if request.user.staff_profile.is_admin %}
-<div class="panel" style="margin-top:18px;">
-  <div class="panel-header"><h2>Lead automation</h2></div>
-  <div style="padding:22px;">
-    <p style="margin:0 0 4px; font-size:13px; color:var(--text-muted);">
-      "Add New Lead" opens the CRM's own form. Every new lead is saved here first, then pushed to this n8n webhook:
-    </p>
-    <p style="margin:0; font-family:monospace; font-size:13.5px; word-break:break-all;">{{ N8N_LEAD_WEBHOOK_URL }}</p>
-  </div>
+    {% elif section == "leads" %}
+      <h2 style="margin-top:0;">Leads &amp; Assignment</h2>
+      <form method="post"><input type="hidden" name="section" value="leads">{% csrf_token %}
+        <div class="toggle-row"><input type="checkbox" name="referrer_keeps_access" id="s1" {% if s.referrer_keeps_access %}checked{% endif %}><label for="s1"><strong>Referrer keeps view access after a transfer</strong><span>A staff member who referred a lead can still view it after it's transferred to someone else.</span></label></div>
+        <div class="toggle-row"><input type="checkbox" name="staff_can_transfer" id="s2" {% if s.staff_can_transfer %}checked{% endif %}><label for="s2"><strong>Staff can transfer their own leads</strong><span>Off = only Admin can transfer leads.</span></label></div>
+        <div class="toggle-row"><input type="checkbox" name="staff_can_export" id="s3" {% if s.staff_can_export %}checked{% endif %}><label for="s3"><strong>Staff can export their own records</strong><span>Exports always respect each person's authorized data only.</span></label></div>
+        <button class="btn-primary btn-inline" style="margin-top:16px;">Save</button></form>
+
+    {% elif section == "imports" %}
+      <h2 style="margin-top:0;">Import</h2>
+      <form method="post"><input type="hidden" name="section" value="imports">{% csrf_token %}
+        <div class="field-group"><label>Rows processed per chunk</label><input type="number" name="import_chunk_size" value="{{ s.import_chunk_size }}" min="200" max="10000"><div class="help-text">Lower = steadier progress on very large files; higher = fewer round-trips.</div></div>
+        <div class="field-group"><label>Maximum upload size (MB)</label><input type="number" name="import_max_file_mb" value="{{ s.import_max_file_mb }}" min="1" max="500"></div>
+        <div class="field-group"><label>Default duplicate handling</label><select name="import_default_duplicate_policy"><option value="skip" {% if s.import_default_duplicate_policy == 'skip' %}selected{% endif %}>Skip duplicates</option><option value="update" {% if s.import_default_duplicate_policy == 'update' %}selected{% endif %}>Update existing</option><option value="new" {% if s.import_default_duplicate_policy == 'new' %}selected{% endif %}>Import as new</option><option value="review" {% if s.import_default_duplicate_policy == 'review' %}selected{% endif %}>Review each</option></select></div>
+        <button class="btn-primary btn-inline">Save</button></form>
+
+    {% elif section == "n8n" %}
+      <h2 style="margin-top:0;">n8n / Automation</h2>
+      <p class="help-text">This is the single URL the CRM uses to send new leads to n8n — nothing is hardcoded elsewhere.</p>
+      <form method="post"><input type="hidden" name="section" value="n8n">{% csrf_token %}
+        <div class="toggle-row"><input type="checkbox" name="n8n_enabled" id="s4" {% if s.n8n_enabled %}checked{% endif %}><label for="s4"><strong>n8n integration enabled</strong><span>Turn off to stop sending leads to n8n entirely.</span></label></div>
+        <div class="field-group"><label>n8n Webhook URL</label><input type="text" name="n8n_webhook_url" value="{{ s.n8n_webhook_url }}" placeholder="https://your-n8n-instance/webhook/..."><div class="help-text">Leave blank to use the built-in default ({{ n8n_effective|default:"none configured" }}).</div></div>
+        <button class="btn-primary btn-inline">Save</button></form>
+
+    {% elif section == "documents" %}
+      <h2 style="margin-top:0;">Document Checklist</h2>
+      <p>Manage the master document list from a dedicated screen.</p>
+      <a class="btn-primary btn-inline" href="{% url 'document_settings' %}">Open Document Checklist settings →</a>
+
+    {% elif section == "security" %}
+      <h2 style="margin-top:0;">Security</h2>
+      <form method="post"><input type="hidden" name="section" value="security">{% csrf_token %}
+        <div class="toggle-row"><input type="checkbox" name="allow_public_registration" id="s5" {% if s.allow_public_registration %}checked{% endif %}><label for="s5"><strong>Allow public self-registration</strong><span>Off = new accounts can only be created by an Admin under Staff Management.</span></label></div>
+        <button class="btn-primary btn-inline">Save</button></form>
+
+    {% elif section == "data" %}
+      <h2 style="margin-top:0;">Data Management</h2>
+      <dl class="kv-grid"><div><dt>Leads</dt><dd>{{ n_leads }}</dd></div><div><dt>Contacts</dt><dd>{{ n_contacts }}</dd></div>
+        <div><dt>Import batches</dt><dd>{{ n_batches }}</dd></div><div><dt>Audit log entries</dt><dd>{{ n_audit }}</dd></div></dl>
+      <p style="margin-top:16px;"><a class="link" href="{% url 'audit_log' %}">Open audit log →</a></p>
+    {% endif %}
+  </div></div>
 </div>
-{% endif %}
 {% endblock %}

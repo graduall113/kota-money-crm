@@ -3,10 +3,10 @@
 {% block content %}
 <div class="page-header">
   <h1>Dashboard</h1>
-  <p>{% if request.user.staff_profile.is_admin %}An overview of lead activity across the team.{% else %}An overview of leads you've referred.{% endif %}</p>
+  <p>{% if is_admin_view %}A global overview of leads, contacts and team activity.{% else %}Your leads, contacts and follow-ups — only data you're authorized to see.{% endif %}</p>
 </div>
 
-<div class="stat-grid">
+<div class="stat-grid cols-6">
   {% for stat in stats %}
   <div class="stat-card">
     <div class="stat-label">{{ stat.label }}</div>
@@ -18,29 +18,23 @@
 <div class="panel">
   <div class="panel-header">
     <h2>Recent leads</h2>
+    <div class="panel-actions"><a href="{% if is_admin_view %}{% url 'all_leads' %}{% else %}{% url 'my_leads' %}{% endif %}" class="link">View all →</a></div>
   </div>
   {% if recent_leads %}
   <div class="table-scroll">
     <table class="data-table">
-      <thead>
-        <tr>
-          <th>Customer</th>
-          <th>Phone</th>
-          <th>Requirement</th>
-          <th>Status</th>
-          <th>Reference By</th>
-          <th>Date</th>
-        </tr>
-      </thead>
+      <thead><tr><th>Lead ID</th><th>Customer</th><th>Phone</th><th>Requirement</th><th>Status</th><th>Reference By</th><th>Assigned To</th><th>Date</th></tr></thead>
       <tbody>
         {% for lead in recent_leads %}
         <tr>
+          <td class="mono"><a class="link" href="{% url 'lead_detail' lead.pk %}">{{ lead.display_id }}</a></td>
           <td>{{ lead.customer_name }}</td>
           <td><a href="tel:{{ lead.contact_number }}" class="link">{{ lead.contact_number }}</a></td>
           <td>{{ lead.requirement|default:"—" }}</td>
           <td><span class="status-pill status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
           <td>{% if lead.reference_by %}{{ lead.reference_by.get_full_name|default:lead.reference_by.username }}{% else %}—{% endif %}</td>
-          <td>{{ lead.created_at|date:"d M Y" }}</td>
+          <td>{% if lead.assigned_to %}{{ lead.assigned_to.get_full_name|default:lead.assigned_to.username }}{% else %}—{% endif %}</td>
+          <td>{{ lead.created_at|date:"d/m/Y" }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -50,8 +44,33 @@
   <div class="empty-state">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto;"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>
     <h3>No leads yet</h3>
-    <p>Leads captured through the form will show up here.</p>
+    <p>Leads assigned to you will show up here.</p>
   </div>
   {% endif %}
 </div>
+
+{% if is_admin_view %}
+<div class="two-col" style="margin-top:18px;">
+  <div class="panel">
+    <div class="panel-header"><h2>Recent imports</h2><a href="{% url 'import_list' %}" class="link">All imports →</a></div>
+    {% if recent_imports %}
+    <div class="table-scroll"><table class="data-table">
+      <thead><tr><th>Batch</th><th>File</th><th>Imported</th><th>Status</th></tr></thead>
+      <tbody>{% for b in recent_imports %}
+        <tr><td class="mono"><a class="link" href="{% url 'import_detail' b.pk %}">{{ b.code }}</a></td><td>{{ b.file_name|truncatechars:28 }}</td><td>{{ b.imported_count }}</td><td><span class="badge {% if b.status == 'completed' %}ok{% elif b.status == 'failed' %}bad{% endif %}">{{ b.get_status_display }}</span></td></tr>
+      {% endfor %}</tbody></table></div>
+    {% else %}<div class="empty-state" style="padding:32px;"><p>No imports yet.</p></div>{% endif %}
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>Recent transfers</h2></div>
+    {% if recent_transfers %}
+    <div class="table-scroll"><table class="data-table">
+      <thead><tr><th>Lead</th><th>Transfer</th><th>When</th></tr></thead>
+      <tbody>{% for t in recent_transfers %}
+        <tr><td class="mono"><a class="link" href="{% url 'lead_detail' t.lead_id %}">{{ t.lead.display_id }}</a></td><td>{{ t.from_name|default:"—" }} → {{ t.to_name }}</td><td class="nowrap">{{ t.created_at|date:"d/m/Y, H:i" }}</td></tr>
+      {% endfor %}</tbody></table></div>
+    {% else %}<div class="empty-state" style="padding:32px;"><p>No transfers yet.</p></div>{% endif %}
+  </div>
+</div>
+{% endif %}
 {% endblock %}

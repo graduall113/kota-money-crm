@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ batch.code }} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header with-actions"><div><h1>Import <span class="mono">{{ batch.code }}</span></h1><p>{{ batch.file_name }} · uploaded by {{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.username }} on {{ batch.created_at|date:"d/m/Y, H:i" }}</p></div>
+  <div class="page-actions"><a class="btn-secondary" href="{% url 'import_list' %}">All imports</a></div></div>
+
+<div id="progressPanel" class="panel" {% if not batch.is_busy %}style="display:none;"{% endif %}><div class="panel-body">
+  <strong id="phase">{{ batch.get_status_display }}…</strong>
+  <div class="progress lg" style="margin-top:10px;"><span id="bar" style="width:{{ batch.progress_percent }}%"></span></div>
+  <div class="progress-text"><span id="nums">{{ batch.processed_rows }} / {{ batch.total_rows }}</span> · <span id="pct">{{ batch.progress_percent }}</span>% · Imported <span id="imp">{{ batch.imported_count }}</span> · Duplicates <span id="dup">{{ batch.duplicate_count }}</span> · Errors <span id="err">{{ batch.error_count }}</span></div>
+  <p class="help-text">You can leave this page — processing continues on the server.</p>
+</div></div>
+
+{% if batch.status == 'failed' %}<div class="alert alert-error">Import failed: {{ batch.error_message }}
+  {% if batch.processed_rows %}<form method="post" action="{% url 'import_start' batch.pk %}" style="display:inline;">{% csrf_token %}<button class="btn-secondary btn-sm">Resume from row {{ batch.processed_rows }}</button></form>{% endif %}
+  <form method="post" action="{% url 'import_revalidate' batch.pk %}" style="display:inline;">{% csrf_token %}<button class="btn-secondary btn-sm">Re-validate file</button></form></div>{% endif %}
+{% if batch.is_stalled %}<div class="alert alert-warning">This job stopped responding (the server was probably restarted).
+  <form method="post" action="{% url 'import_start' batch.pk %}" style="display:inline;">{% csrf_token %}<button class="btn-secondary btn-sm">Resume</button></form></div>{% endif %}
+
+{% if batch.status == 'analyzed' %}
+<div class="stat-grid cols-6" style="grid-template-columns:repeat(4,1fr);">
+  <div class="stat-card"><div class="stat-label">Total rows</div><div class="stat-value">{{ batch.total_rows }}</div></div>
+  <div class="stat-card"><div class="stat-label">New records</div><div class="stat-value">{{ batch.analysis_new }}</div></div>
+  <div class="stat-card"><div class="stat-label">Duplicates</div><div class="stat-value">{{ batch.analysis_duplicates }}</div></div>
+  <div class="stat-card"><div class="stat-label">Invalid</div><div class="stat-value">{{ batch.analysis_invalid }}</div><div class="stat-sub">{% if error_total %}<a class="link" href="{% url 'import_errors' batch.pk %}">View report</a>{% endif %}</div></div>
+</div>
+<div class="panel"><div class="panel-header"><h2>Step 4 · Import settings</h2></div><div class="panel-body">
+<form method="post" action="{% url 'import_start' batch.pk %}">{% csrf_token %}
+  <div class="field-group"><label>When a row matches an existing contact (same phone number, or email)</label>
+    <select name="duplicate_policy">{% for k, l in dup_choices %}<option value="{{ k }}" {% if batch.duplicate_policy == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <div class="help-text">"Update" fills in non-empty values only and never touches assignment. "Review" parks them for a row-by-row decision.</div></div>
+  <div class="field-group"><label>Assign every new contact to (optional)</label><select name="assign_to"><option value="">Leave unassigned — distribute afterwards</option>{% for s in staff_members %}<option value="{{ s.pk }}">{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+  <div class="field-group"><label>Add imported contacts to segment (optional)</label>
+    <div class="inline-form">
+      <select name="add_to_segment"><option value="">— No Segment —</option>{% for seg in segments %}<option value="{{ seg.pk }}">{{ seg.name }}</option>{% endfor %}</select>
+      <input type="text" name="new_segment" placeholder="…or + Create New Segment">
+    </div>
+    <div class="help-text">Only successfully imported/updated contacts join the segment — skipped duplicates never do.</div></div>
+  <div class="field-group"><label>Source label</label><input type="text" name="source_label" value="{{ batch.source_label }}" maxlength="100"></div>
+  <button class="btn-primary btn-inline">Import {{ batch.analysis_new }} new{% if batch.analysis_duplicates %} (+ handle {{ batch.analysis_duplicates }} duplicates){% endif %}</button>
+  <a class="link" style="margin-left:14px;" href="{% url 'import_map' batch.pk %}">← Change column mapping</a>
+</form></div></div>
+{% endif %}
+
+{% if batch.status == 'review' %}
+<div class="alert alert-warning">{{ review_total }} duplicate rows are waiting for your decision ({{ review_pending }} undecided). <a class="link" href="{% url 'import_review' batch.pk %}">Open review screen →</a></div>
+{% endif %}
+
+{% if batch.status == 'completed' or batch.status == 'review' %}
+<div class="stat-grid cols-6">
+  <div class="stat-card"><div class="stat-label">Total rows</div><div class="stat-value">{{ batch.total_rows }}</div></div>
+  <div class="stat-card"><div class="stat-label">Imported</div><div class="stat-value">{{ batch.imported_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">Updated</div><div class="stat-value">{{ batch.updated_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">Duplicates</div><div class="stat-value">{{ batch.duplicate_count }}</div><div class="stat-sub">{{ batch.skipped_count }} skipped</div></div>
+  <div class="stat-card"><div class="stat-label">Errors</div><div class="stat-value">{{ batch.error_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">Assignment</div><div class="stat-value" style="font-size:16px;">{{ assigned_count }} / {{ contact_count }}</div></div>
+  <div class="stat-card"><div class="stat-label">Segment</div><div class="stat-value" style="font-size:16px;">{% if batch.add_to_segment %}<a class="link" href="{% url 'segment_detail' batch.add_to_segment.pk %}">{{ batch.add_to_segment.name }}</a>{% else %}—{% endif %}</div></div>
+</div>
+<div class="panel"><div class="panel-header"><h2>Distribute this batch</h2>
+  <div class="panel-actions"><a class="btn-primary btn-sm" href="{% url 'bulk_assign' %}?model=contact&batch_id={{ batch.pk }}&only_unassigned=1">Assign unassigned…</a>
+  <a class="btn-secondary btn-sm" href="{% url 'bulk_assign' %}?model=contact&batch_id={{ batch.pk }}">Reassign all…</a>
+  <a class="btn-secondary btn-sm" href="{% url 'contacts' %}?import_batch={{ batch.pk }}">View records</a></div></div>
+  {% if per_staff %}<div class="panel-body">{% for r in per_staff %}<span class="badge ok" style="margin-right:6px;">{{ r.current_assigned_to__first_name|default:r.current_assigned_to__username }}: {{ r.n }}</span>{% endfor %}</div>{% endif %}</div>
+{% endif %}
+
+{% if error_total %}
+<div class="panel"><div class="panel-header"><h2>Error report ({{ error_total }})</h2><div class="panel-actions"><a class="btn-secondary btn-sm" href="{% url 'import_errors' batch.pk %}?download=1">Download failed rows (CSV)</a><a class="link" href="{% url 'import_errors' batch.pk %}">Full report →</a></div></div>
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Row</th><th>Field</th><th>Problem</th><th>Reason</th></tr></thead><tbody>
+  {% for e in errors %}<tr><td>{{ e.row_number }}</td><td>{{ e.field }}</td><td>{{ e.problem }}</td><td>{{ e.reason }}</td></tr>{% endfor %}</tbody></table></div></div>
+{% endif %}
+<div class="panel"><div class="panel-header"><h2>Column mapping used</h2></div><div class="panel-body">{% for label, col in mapped %}<span class="badge" style="margin:2px;">{{ col }} → {{ label }}</span>{% endfor %}</div></div>
+{% endblock %}
+{% block extra_scripts %}
+{% if batch.is_busy %}
+<script>
+(function poll() {
+  fetch("{% url 'import_progress' batch.pk %}").then(r => r.json()).then(d => {
+    const $ = id => document.getElementById(id);
+    $('bar').style.width = d.percent + '%'; $('pct').textContent = d.percent; $('nums').textContent = d.processed + ' / ' + d.total;
+    $('imp').textContent = d.imported; $('dup').textContent = d.duplicates; $('err').textContent = d.errors; $('phase').textContent = d.status_label + '…';
+    if (!d.busy) { location.reload(); } else { setTimeout(poll, 1500); }
+  }).catch(() => setTimeout(poll, 3000));
+})();
+</script>
+{% endif %}
+{% endblock %}

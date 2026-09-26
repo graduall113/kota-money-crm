@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Segments · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header with-actions">
+  <div><h1>Segments</h1><p>Named groups of contacts — manually curated, no automatic rules.</p></div>
+  {% if can_manage %}<div class="page-actions"><a href="{% url 'segment_create' %}" class="btn-primary">+ Create Segment</a></div>{% endif %}
+</div>
+<div class="panel">
+  {% if segments %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Segment Name</th><th>Description</th><th>Contact Count</th><th>Created By</th><th>Created Date</th><th>Actions</th></tr></thead>
+    <tbody>{% for seg in segments %}<tr>
+      <td><a href="{% url 'segment_detail' seg.pk %}" class="link">{{ seg.name }}</a>{% if not seg.is_active %} <span class="badge">inactive</span>{% endif %}</td>
+      <td>{{ seg.description|truncatechars:60|default:"—" }}</td>
+      <td>{{ seg.n }}</td>
+      <td>{{ seg.created_by.get_full_name|default:seg.created_by.username|default:"—" }}</td>
+      <td class="nowrap">{{ seg.created_at|date:"d/m/Y" }}</td>
+      <td class="row-actions">
+        <a class="link" href="{% url 'segment_detail' seg.pk %}">View</a>
+        {% if can_manage %}<a class="link" href="{% url 'segment_edit' seg.pk %}">Edit</a>
+        <a class="link action-danger" href="{% url 'segment_delete' seg.pk %}">Delete</a>{% endif %}
+      </td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <div class="empty-state"><h3>No segments yet</h3><p>{% if can_manage %}Create your first segment to start grouping contacts.{% else %}Segments will appear here once created.{% endif %}</p></div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Privileged Numbers · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Privileged Numbers</h1>
+  <p>Owner/Jiju/other excluded numbers. Any call to or from an active number here is completely excluded from Calling Analytics, Call History, and the automatic New → Contacted status change — no matter which staff member's phone it came from. The phone call itself is never affected.</p>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Add a number</h2></div>
+  <form method="post" class="inline-form" style="padding:16px 22px;">
+    {% csrf_token %}
+    <label>Phone Number <input type="text" name="phone_number" placeholder="e.g. 9876543210" maxlength="20" required></label>
+    <label>Label <input type="text" name="label" placeholder="e.g. Owner, Jiju" maxlength="100"></label>
+    <button class="btn-primary btn-sm">Add</button>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Numbers</h2></div>
+  {% if numbers %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Phone Number</th><th>Label</th><th>Status</th><th>Added</th><th></th></tr></thead>
+    <tbody>
+      {% for n in numbers %}
+      <tr>
+        <td class="mono">{{ n.phone_number }}</td>
+        <td>{{ n.label|default:"—" }}</td>
+        <td>{% if n.is_active %}<span class="badge ok">Active</span>{% else %}<span class="badge bad">Disabled</span>{% endif %}</td>
+        <td>{{ n.created_at|date:"d/m/Y" }}</td>
+        <td>
+          <form method="post" action="{% url 'calling_privileged_number_toggle' n.pk %}" style="display:inline;">
+            {% csrf_token %}
+            <button class="link" style="background:none;border:none;padding:0;cursor:pointer;">{% if n.is_active %}Disable{% else %}Re-enable{% endif %}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <div class="empty-state">
+    <h3>No privileged numbers yet</h3>
+    <p>Add the owner/Jiju numbers above to keep them out of calling analytics permanently.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

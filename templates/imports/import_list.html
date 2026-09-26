@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Import Data · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header with-actions"><div><h1>Import Data</h1><p>Upload CSV / Excel files, map columns, de-duplicate and distribute to staff.</p></div>
+  <div class="page-actions"><a class="btn-primary" href="{% url 'import_new' %}">+ New import</a></div></div>
+<div class="panel">{% if batches %}
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Batch</th><th>File</th><th>Uploaded by</th><th>Date</th><th>Total rows</th><th>Imported</th><th>Duplicates</th><th>Errors</th><th>Assignment</th><th>Status</th></tr></thead><tbody>
+  {% for b in batches %}<tr><td class="mono"><a class="link" href="{% url 'import_detail' b.pk %}">{{ b.code }}</a></td><td>{{ b.file_name|truncatechars:30 }}</td>
+    <td>{{ b.uploaded_by.get_full_name|default:b.uploaded_by.username|default:"—" }}</td><td class="nowrap">{{ b.created_at|date:"d/m/Y, H:i" }}</td>
+    <td>{{ b.total_rows }}</td><td>{{ b.imported_count }}</td><td>{{ b.duplicate_count }}</td><td>{{ b.error_count }}</td><td>{{ b.assignment_label }}</td>
+    <td><span class="badge {% if b.status == 'completed' %}ok{% elif b.status == 'failed' %}bad{% elif b.is_busy %}info{% else %}warn{% endif %}">{{ b.get_status_display }}</span></td></tr>{% endfor %}
+  </tbody></table></div>{% include "partials/pagination.html" %}
+{% else %}<div class="empty-state"><h3>No imports yet</h3><p>Upload your first CSV or Excel file.</p></div>{% endif %}</div>
+{% endblock %}

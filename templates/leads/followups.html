@@ -1,38 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Follow-ups · Kota Money CRM{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>Follow-ups</h1>
-  <p>Leads with documents pending or a meeting requested.</p>
+<div class="page-header"><h1>Follow-ups</h1><p>Scheduled follow-ups on your leads and contacts, and leads waiting on the customer.</p></div>
+
+<div class="stat-grid cols-3">
+  {% for sec in sections %}
+  <div class="stat-card"><div class="stat-label">{{ sec.label }}</div><div class="stat-value">{{ sec.lead_count|add:sec.contact_count }}</div><div class="stat-sub">{{ sec.lead_count }} lead{{ sec.lead_count|pluralize }} · {{ sec.contact_count }} contact{{ sec.contact_count|pluralize }}</div></div>
+  {% endfor %}
 </div>
+
+{% for sec in sections %}
+{% if sec.lead_count or sec.contact_count %}
 <div class="panel">
-  <div class="panel-header"><h2>Needs attention</h2></div>
+  <div class="panel-header"><h2>{{ sec.label }}</h2></div>
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Type</th><th>Name</th><th>Phone</th><th>Due</th><th>Notes</th><th></th></tr></thead>
+    <tbody>
+      {% for l in sec.leads %}<tr>
+        <td><span class="badge info">Lead</span></td><td>{{ l.customer_name }} <span class="mono muted">{{ l.display_id }}</span></td>
+        <td><a class="link" href="tel:{{ l.contact_number }}">{{ l.contact_number }}</a></td>
+        <td class="nowrap">{{ l.next_followup_date|date:"d/m/Y" }}{% if l.next_followup_time %} {{ l.next_followup_time|time:"H:i" }}{% endif %}</td>
+        <td>{{ l.followup_notes|truncatechars:60 }}</td><td><a class="link" href="{% url 'lead_detail' l.pk %}">Open</a></td></tr>{% endfor %}
+      {% for c in sec.contacts %}<tr>
+        <td><span class="badge">Contact</span></td><td>{{ c.name }}</td>
+        <td><a class="link" href="tel:{{ c.phone }}">{{ c.phone }}</a></td>
+        <td class="nowrap">{{ c.next_followup_date|date:"d/m/Y" }}{% if c.next_followup_time %} {{ c.next_followup_time|time:"H:i" }}{% endif %}</td>
+        <td>{{ c.followup_notes|truncatechars:60 }}</td><td><a class="link" href="{% url 'contact_detail' c.pk %}">Open</a></td></tr>{% endfor %}
+    </tbody></table></div>
+</div>
+{% endif %}
+{% endfor %}
+
+<div class="panel">
+  <div class="panel-header"><h2>Waiting on documents / meeting</h2></div>
   {% if leads %}
-  <div class="table-scroll">
-    <table class="data-table">
-      <thead>
-        <tr><th>Customer</th><th>Phone</th><th>Status</th><th>Reference By</th><th>Assigned To</th><th>Date</th></tr>
-      </thead>
-      <tbody>
-        {% for lead in leads %}
-        <tr>
-          <td>{{ lead.customer_name }}</td>
-          <td><a href="tel:{{ lead.contact_number }}" class="link">{{ lead.contact_number }}</a></td>
-          <td><span class="status-pill status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
-          <td>{% if lead.reference_by %}{{ lead.reference_by.get_full_name|default:lead.reference_by.username }}{% else %}—{% endif %}</td>
-          <td>{% if lead.assigned_to %}{{ lead.assigned_to.get_full_name|default:lead.assigned_to.username }}{% else %}—{% endif %}</td>
-          <td>{{ lead.created_at|date:"d M Y" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-state">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto;"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.5V12l3 2"/></svg>
-    <h3>You're all caught up</h3>
-    <p>Nothing needs follow-up right now.</p>
-  </div>
-  {% endif %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Lead ID</th><th>Customer</th><th>Contact</th><th>Requirement</th><th>Status</th><th>Assigned To</th><th>Updated</th></tr></thead>
+    <tbody>{% for lead in leads %}<tr>
+      <td class="mono"><a class="link" href="{% url 'lead_detail' lead.pk %}">{{ lead.display_id }}</a></td><td>{{ lead.customer_name }}</td>
+      <td><a href="tel:{{ lead.contact_number }}" class="link">{{ lead.contact_number }}</a></td><td>{{ lead.requirement|default:"—" }}</td>
+      <td><span class="status-pill status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
+      <td>{% if lead.assigned_to %}{{ lead.assigned_to.get_full_name|default:lead.assigned_to.username }}{% else %}—{% endif %}</td>
+      <td>{{ lead.updated_at|date:"d/m/Y" }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<div class="empty-state"><h3>Nothing waiting</h3><p>Leads pending documents or a meeting appear here.</p></div>{% endif %}
 </div>
 {% endblock %}

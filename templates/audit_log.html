@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Audit Log · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Audit Log</h1><p>Every sensitive action across the CRM, admin-only.</p></div>
+<div class="panel">
+  <form method="get" class="filter-grid">
+    <div><label>Action</label><select name="action"><option value="">All</option>{% for a in actions %}<option value="{{ a }}" {% if GET.action == a %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></div>
+    <div><label>Admin</label><select name="actor"><option value="">All</option>{% for a in admins %}<option value="{{ a.pk }}" {% if GET.actor == a.pk|stringformat:'s' %}selected{% endif %}>{{ a.get_full_name|default:a.username }}</option>{% endfor %}</select></div>
+    <div><label>Search</label><input type="text" name="q" value="{{ GET.q }}"></div>
+    <div><label>From</label><input type="text" name="from" value="{{ GET.from }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    <div><label>To</label><input type="text" name="to" value="{{ GET.to }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    <div class="filter-actions"><button class="btn-primary btn-sm">Apply Filters</button><a href="{% url 'audit_log' %}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a></div>
+  </form>
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Summary</th></tr></thead><tbody>
+  {% for l in logs %}<tr><td class="nowrap">{{ l.created_at|date:"d/m/Y — H:i" }}</td><td>{{ l.actor_name|default:"System" }}</td><td><span class="badge">{{ l.action }}</span></td><td>{{ l.summary }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">No audit entries yet.</td></tr>{% endfor %}
+  </tbody></table></div>{% include "partials/pagination.html" %}
+</div>
+{% endblock %}

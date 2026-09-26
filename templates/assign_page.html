@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Bulk Assignment · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Bulk assignment</h1>
+  {% if segment %}
+  <p>Segment: <strong>{{ segment.name }}</strong> · Contacts: <strong>{{ count }}</strong> · Currently Assigned: <strong>{{ assigned_count }}</strong> · Unassigned: <strong>{{ unassigned_count }}</strong></p>
+  {% else %}
+  <p>{{ count }} {{ model_name }}{{ count|pluralize }} selected{% if batch %} from batch <span class="mono">{{ batch.code }}</span>{% endif %}. Choose how to distribute them.</p>
+  {% endif %}
+</div>
+{% if not count %}<div class="alert alert-warning">There are no records in this selection.</div>{% else %}
+<form method="post" action="{% url 'bulk_action' model_name %}">{% csrf_token %}
+  <input type="hidden" name="action" value="assign">
+  <input type="hidden" name="scope_type" value="{% if batch %}batch{% else %}filter{% endif %}">
+  {% if batch %}<input type="hidden" name="batch_id" value="{{ batch.pk }}"><input type="hidden" name="only_unassigned" value="{% if only_unassigned %}1{% else %}0{% endif %}">
+  {% else %}<input type="hidden" name="query" value="{{ query }}"><input type="hidden" name="expected_count" value="{{ count }}">{% endif %}
+  <div class="panel"><div class="panel-header"><h2>1 · Method</h2></div><div class="panel-body option-cards">
+    <label class="option-card"><input type="radio" name="method" value="one" checked><strong>All to one person</strong><span>Every record goes to a single staff member.</span></label>
+    <label class="option-card"><input type="radio" name="method" value="equal"><strong>Equal distribution</strong><span>Split evenly across the people you tick.</span></label>
+    <label class="option-card"><input type="radio" name="method" value="custom"><strong>Custom numbers</strong><span>Type an exact count per person.</span></label>
+    <label class="option-card"><input type="radio" name="method" value="percent"><strong>Percentage</strong><span>e.g. 25% / 35% / 40%.</span></label>
+    <label class="option-card"><input type="radio" name="method" value="random"><strong>Random</strong><span>Shuffle first, then split evenly.</span></label>
+  </div></div>
+  <div class="panel"><div class="panel-header"><h2>2 · Staff</h2></div>
+    <div class="table-scroll"><table class="data-table dist-table"><thead><tr><th style="width:40px;"></th><th>Staff</th><th>Count (custom)</th><th>Percent (percentage)</th></tr></thead><tbody>
+      {% for s in staff_members %}<tr><td><input type="checkbox" name="staff_ids" value="{{ s.pk }}"></td><td>{{ s.get_full_name|default:s.username }}</td>
+        <td><input type="number" min="0" name="count_{{ s.pk }}"></td><td><input type="number" min="0" max="100" step="0.01" name="percent_{{ s.pk }}"></td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="panel-body"><p class="help-text" style="margin-top:0;">For "All to one person" tick exactly one. Records that a custom/percentage plan leaves over stay where they are.</p>
+      <div class="field-group"><label>Reason (optional)</label><input type="text" name="reason" maxlength="300"></div>
+      <button class="btn-primary btn-inline">Review &amp; confirm</button> <a class="link" style="margin-left:14px;" href="{% if segment %}{% url 'segment_detail' segment.pk %}{% elif batch %}{% url 'import_detail' batch.pk %}{% else %}{% url 'contacts' %}{% endif %}">Cancel</a></div>
+  </div>
+</form>{% endif %}
+{% endblock %}

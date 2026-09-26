@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Map columns · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Map columns</h1><p>Step 2 of 4 — <span class="mono">{{ batch.code }}</span> · {{ batch.file_name }}. We guessed the mapping; correct anything that's wrong.</p></div>
+<form method="post">{% csrf_token %}
+<div class="panel"><div class="panel-header"><h2>Fields</h2></div><div class="panel-body">
+  <div class="filter-grid" style="border:none; padding:0;">
+  {% for f in fields %}<div><label>{{ f.label }}{% if f.required %} *{% endif %}</label>
+    <select name="map_{{ f.key }}"><option value="">— not in file —</option>{% for i, h in headers %}<option value="{{ i }}" {% if f.selected == i %}selected{% endif %}>{{ h|default:"(blank)" }}</option>{% endfor %}</select></div>{% endfor %}
+  </div></div></div>
+<div class="panel"><div class="panel-header"><h2>What happens to each column</h2></div><div class="panel-body">
+  <p class="help-text" style="margin-top:0;">Nothing from your file is discarded. Every column below either fills a CRM field, becomes a labeled entry under "Additional Information" on the contact, or is preserved as-is under its own original column name.</p>
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Spreadsheet column</th><th>Will be stored as</th></tr></thead><tbody>
+    {% for c in classification %}<tr><td>{{ c.header|default:"(blank)" }}</td>
+      <td>{% if c.kind == "field" %}<span class="badge ok">CRM field: {{ c.target }}</span>
+        {% elif c.kind == "extra_known" %}<span class="badge info">Additional Information: {{ c.target }}</span>
+        {% elif c.kind == "extra_raw" %}<span class="badge">Additional Information: "{{ c.target }}" (as in file)</span>
+        {% else %}<span class="muted">— blank column, skipped —</span>{% endif %}</td></tr>
+    {% endfor %}
+  </tbody></table></div>
+</div></div>
+<div class="panel"><div class="panel-header"><h2>Preview — first {{ preview_rows|length }} rows of your file</h2></div>
+  <div class="table-scroll"><table class="data-table"><thead><tr>{% for i, h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>
+  {% for row in preview_rows %}<tr>{% for c in row %}<td>{{ c }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></div>
+<p style="margin-top:18px;"><button class="btn-primary btn-inline">Validate &amp; check duplicates</button> <a class="link" style="margin-left:14px;" href="{% url 'import_list' %}">Cancel</a></p>
+</form>
+{% endblock %}

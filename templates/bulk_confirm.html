@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Confirm · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Please confirm</h1><p>Nothing has been changed yet.</p></div>
+<div class="panel confirm-box {% if destructive %}danger{% endif %}"><div class="panel-body">
+  <p class="big">Are you sure you want to <strong>{{ verb }} {{ count }} {{ model_name }}{{ count|pluralize }}</strong>{% if to_names %} to <strong>{{ to_names|join:", " }}</strong>{% endif %}{% if action == "add_to_segment" %} — <strong>{% if params.segment_id %}{{ params.segment_name }}{% else %}{{ params.new_segment }} (new segment){% endif %}</strong>{% endif %}?</p>
+  {% if from_names %}<p class="muted">Currently held by: {% for who, n in from_names.items %}{{ who }} ({{ n }}){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  {% if params.method and params.method != 'one' %}<p class="muted">Method: {{ params.method }}</p>{% endif %}
+  {% if destructive %}<p style="color:#b3401f;">This permanently deletes the selected records and cannot be undone.</p>{% endif %}
+  <form method="post" action="{% url 'bulk_action' model_name %}">{% csrf_token %}
+    {% for key, values in post.lists %}{% if key != 'csrfmiddlewaretoken' and key != 'confirmed' %}{% for v in values %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}{% endif %}{% endfor %}
+    <input type="hidden" name="confirmed" value="1">
+    <button class="{% if destructive %}btn-danger{% else %}btn-primary btn-inline{% endif %}">Yes, {{ verb }} {{ count }}</button>
+    <a class="link" style="margin-left:14px;" href="{% if model_name == 'lead' %}{% url 'all_leads' %}{% else %}{% url 'contacts' %}{% endif %}">Cancel</a>
+  </form></div></div>
+{% endblock %}

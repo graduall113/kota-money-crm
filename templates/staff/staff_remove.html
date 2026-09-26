@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Remove {{ target.get_full_name|default:target.username }} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Remove {{ target.get_full_name|default:target.username }}</h1><p>This account still has data assigned to it — choose how to handle it before it's deactivated or deleted.</p></div>
+<div class="panel confirm-box"><div class="panel-body">
+  <p class="big">{{ target.get_full_name|default:target.username }} currently has <strong>{{ held.leads }}</strong> lead{{ held.leads|pluralize }} and <strong>{{ held.contacts }}</strong> contact{{ held.contacts|pluralize }} assigned.</p>
+  <form method="post">{% csrf_token %}
+    <div class="option-cards">
+      <label class="option-card"><input type="radio" name="choice" value="reassign_deactivate" checked><strong>Reassign, then deactivate</strong><span>Move their records to someone else, then set this account inactive.</span></label>
+      <label class="option-card"><input type="radio" name="choice" value="keep_inactive"><strong>Keep inactive, keep records</strong><span>Deactivate the login but leave records assigned to them (visible to Admin).</span></label>
+      <label class="option-card"><input type="radio" name="choice" value="reassign_delete"><strong>Reassign, then delete</strong><span>Move their records elsewhere, then permanently delete this account.</span></label>
+      <label class="option-card"><input type="radio" name="choice" value="cancel"><strong>Cancel</strong><span>Don't change anything.</span></label>
+    </div>
+    <div class="field-group" style="margin-top:16px;"><label>Reassign records to</label>
+      <select name="reassign_to"><option value="">Choose staff…</option>{% for s in others %}<option value="{{ s.pk }}">{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+    <button class="btn-primary btn-inline" style="margin-top:10px;">Confirm</button>
+    <a class="link" style="margin-left:14px;" href="{% url 'staff_list' %}">Cancel</a>
+  </form>
+</div></div>
+{% endblock %}

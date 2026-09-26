@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}{{ lead.display_id }} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header with-actions">
+  <div>
+    <h1>{{ lead.customer_name }} <span class="mono muted" style="font-size:15px;">{{ lead.display_id }}</span></h1>
+    <p><span class="status-pill status-{{ lead.status }}">{{ lead.get_status_display }}</span>
+      &nbsp;<a href="tel:{{ lead.contact_number }}" class="link">{{ lead.contact_number }}</a></p>
+  </div>
+  <div class="page-actions">
+    {% if can_edit %}<a href="{% url 'lead_edit' lead.pk %}" class="btn-secondary">Edit</a>{% endif %}
+    {% if can_delete %}<a href="{% url 'lead_delete' lead.pk %}" class="btn-secondary" style="color:#b3401f;">Delete</a>{% endif %}
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-header"><h2>Lead details</h2></div>
+      <div class="panel-body"><dl class="kv-grid">
+        <div><dt>Reference By</dt><dd>{% if lead.reference_by %}{{ lead.reference_by.get_full_name|default:lead.reference_by.username }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Current Assigned To</dt><dd>{% if lead.assigned_to %}{{ lead.assigned_to.get_full_name|default:lead.assigned_to.username }}{% else %}Unassigned{% endif %}</dd></div>
+        <div><dt>Originally assigned to</dt><dd>{% if lead.original_assigned_to %}{{ lead.original_assigned_to.get_full_name|default:lead.original_assigned_to.username }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Requirement</dt><dd>{{ lead.requirement|default:"—" }}</dd></div>
+        <div><dt>Loan Amount</dt><dd>{% if lead.loan_amount %}₹{{ lead.loan_amount }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Work Profile</dt><dd>{{ lead.work_profile|default:"—" }}</dd></div>
+        <div><dt>Income</dt><dd>{{ lead.income|default:"—" }}</dd></div>
+        <div><dt>Bank Calling</dt><dd>{{ lead.bank_calling|default:"—" }}</dd></div>
+        <div><dt>Email</dt><dd>{{ lead.email|default:"—" }}</dd></div>
+        <div><dt>City</dt><dd>{{ lead.city|default:"—" }}</dd></div>
+        <div><dt>Source</dt><dd>{{ lead.source|default:"—" }}</dd></div>
+        <div><dt>Interest</dt><dd>{{ lead.get_interest_display }}</dd></div>
+        <div><dt>Last contacted</dt><dd>{% if lead.last_contacted %}{{ lead.last_contacted|date:"d/m/Y, H:i" }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Created</dt><dd>{{ lead.created_at|date:"d/m/Y" }}</dd></div>
+        <div><dt>Updated</dt><dd>{{ lead.updated_at|date:"d/m/Y, H:i" }}</dd></div>
+      </dl></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><h2>Documents</h2>
+        <span class="badge {% if summary.status == 'complete' %}ok{% elif summary.status == 'partial' %}warn{% endif %}">{{ summary.status_label }}</span></div>
+      <div class="panel-body">
+        <p style="margin:0 0 6px;"><strong>Documents Received: {{ summary.received }} / {{ summary.total }}</strong> · Pending: {{ summary.pending }}</p>
+        <div class="progress lg"><span style="width:{{ summary.percent }}%"></span></div>
+        <p class="help-text">Checklist only — no document files are stored in the CRM.</p>
+        <form method="post" action="{% url 'lead_action' lead.pk %}" style="margin-top:12px;">
+          {% csrf_token %}<input type="hidden" name="action" value="checklist">
+          <ul class="checklist">
+            {% for item in items %}
+            <li><input type="checkbox" id="doc{{ item.type.pk }}" name="docs" value="{{ item.type.pk }}" {% if item.received %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+              <label for="doc{{ item.type.pk }}">{{ item.type.name }} {% if not item.type.is_required %}<span class="optional">(optional)</span>{% endif %}</label></li>
+            {% empty %}<li class="muted">No documents are configured yet.</li>{% endfor %}
+          </ul>
+          {% if can_edit and items %}<button type="submit" class="btn-primary btn-sm" style="margin-top:12px;">Save checklist</button>{% endif %}
+        </form>
+        {% if can_edit and extra_types %}
+        <form method="post" action="{% url 'lead_action' lead.pk %}" class="inline-form" style="margin-top:14px;">
+          {% csrf_token %}<input type="hidden" name="action" value="add_doc">
+          <select name="doc_type">{% for d in extra_types %}<option value="{{ d.pk }}">{{ d.name }}</option>{% endfor %}</select>
+          <button type="submit" class="btn-secondary btn-sm">Add extra document</button>
+        </form>{% endif %}
+      </div>
+    </div>
+
+    {% if doc_history %}
+    <div class="panel"><div class="panel-header"><h2>Checklist history</h2></div>
+      <div class="table-scroll"><table class="data-table"><thead><tr><th>When</th><th>Document</th><th>Change</th><th>By</th></tr></thead><tbody>
+        {% for h in doc_history %}<tr><td class="nowrap">{{ h.created_at|date:"d/m/Y, H:i" }}</td><td>{{ h.document_name }}</td>
+          <td>{% if h.old_received %}Received{% else %}Pending{% endif %} → {% if h.new_received %}Received{% else %}Pending{% endif %}</td><td>{{ h.changed_by_name|default:"—" }}</td></tr>{% endfor %}
+      </tbody></table></div></div>
+    {% endif %}
+  </div>
+
+  <div class="stack">
+    {% if can_edit %}
+    <div class="panel"><div class="panel-header"><h2>Work this lead</h2></div><div class="panel-body stack">
+      <form method="post" action="{% url 'lead_action' lead.pk %}" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="log_call">
+        <div class="field-group"><label>Interest</label><select name="interest"><option value="">Unchanged</option>{% for k, l in interest_choices %}{% if k %}<option value="{{ k }}">{{ l }}</option>{% endif %}{% endfor %}</select></div>
+        <div class="field-group"><label>Note</label><input type="text" name="note" maxlength="300"></div>
+        <button class="btn-secondary btn-sm">Log call</button></form>
+      <form method="post" action="{% url 'lead_action' lead.pk %}" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="status">
+        <div class="field-group"><label>Status</label><select name="status">{% for k, l in status_choices %}<option value="{{ k }}" {% if lead.status == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <button class="btn-secondary btn-sm">Update status</button></form>
+      <form method="post" action="{% url 'lead_action' lead.pk %}">{% csrf_token %}<input type="hidden" name="action" value="followup">
+        <div class="inline-form">
+          <div class="field-group"><label>Next follow-up</label><input type="text" name="next_followup_date" value="{{ lead.next_followup_date|date:'d/m/Y' }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+          <div class="field-group"><label>Time</label><input type="time" name="next_followup_time" value="{{ lead.next_followup_time|time:'H:i' }}"></div>
+        </div>
+        <div class="field-group" style="margin-top:8px;"><input type="text" name="followup_notes" placeholder="Follow-up notes" value="{{ lead.followup_notes }}"></div>
+        <button class="btn-secondary btn-sm">Save follow-up</button>
+        {% if lead.followup_status == 'pending' %}<button class="btn-secondary btn-sm" name="action" value="followup_done">Mark done</button>{% endif %}
+      </form>
+    </div></div>
+    {% endif %}
+
+    {% if can_transfer %}
+    <div class="panel"><div class="panel-header"><h2>Transfer lead</h2></div><div class="panel-body">
+      <p class="help-text" style="margin-top:0;">Changes only <em>Current Assigned To</em>. Reference By stays {{ lead.reference_by.get_full_name|default:lead.reference_by.username|default:"unchanged" }}.</p>
+      <form method="post" action="{% url 'lead_action' lead.pk %}">{% csrf_token %}<input type="hidden" name="action" value="transfer">
+        <div class="field-group"><label>Transfer to</label><select name="to_user" required><option value="">Choose…</option>{% for u in transfer_targets %}<option value="{{ u.pk }}">{{ u.get_full_name|default:u.username }}</option>{% endfor %}</select></div>
+        <div class="field-group"><label>Reason (optional)</label><input type="text" name="reason" maxlength="300" placeholder="e.g. Customer requested senior assistance"></div>
+        <button class="btn-primary btn-sm">Transfer</button></form>
+    </div></div>
+    {% endif %}
+
+    <div class="panel"><div class="panel-header"><h2>Assignment &amp; transfer history</h2></div>
+      {% if assignments %}<div class="table-scroll"><table class="data-table"><thead><tr><th>When</th><th>Change</th><th>By</th></tr></thead><tbody>
+        {% for a in assignments %}<tr><td class="nowrap">{{ a.created_at|date:"d/m/Y, H:i" }}</td>
+          <td><span class="badge {% if a.action == 'transfer' %}info{% endif %}">{{ a.get_action_display }}</span><br>{{ a.from_name|default:"Unassigned" }} → {{ a.to_name|default:"Unassigned" }}{% if a.reason %}<br><span class="muted">{{ a.reason }}</span>{% endif %}</td>
+          <td>{{ a.changed_by_name|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<div class="panel-body muted">No assignments recorded yet.</div>{% endif %}</div>
+
+    <div class="panel"><div class="panel-header"><h2>Activity timeline</h2></div><div class="panel-body">
+      {% if timeline %}<ul class="timeline">{% for a in timeline %}<li><div class="t-date">{{ a.created_at|date:"d/m/Y, H:i" }}{% if a.actor_name %} · {{ a.actor_name }}{% endif %}</div><div class="t-msg">{{ a.message }}</div></li>{% endfor %}</ul>
+      {% else %}<span class="muted">No activity yet.</span>{% endif %}</div></div>
+  </div>
+</div>
+{% endblock %}

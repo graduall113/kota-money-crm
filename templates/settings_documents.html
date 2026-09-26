@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Document Checklist · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Document Checklist settings</h1><p>The master list every lead's checklist is built from. Checklist only — no files are stored here.</p></div>
+<div class="two-col">
+<div class="panel"><div class="panel-header"><h2>Documents</h2></div>
+  <div class="table-scroll"><table class="data-table"><thead><tr><th>Order</th><th>Name</th><th>Category</th><th>Required</th><th>Default</th><th>Received on</th><th>Status</th><th></th></tr></thead><tbody>
+  {% for d in docs %}<tr>
+    <td class="nowrap"><form method="post" style="display:inline;">{% csrf_token %}<input type="hidden" name="id" value="{{ d.pk }}"><button class="link" name="op" value="up" style="border:none;background:none;cursor:pointer;">↑</button></form>
+      <form method="post" style="display:inline;">{% csrf_token %}<input type="hidden" name="id" value="{{ d.pk }}"><button class="link" name="op" value="down" style="border:none;background:none;cursor:pointer;">↓</button></form></td>
+    <td>{{ d.name }}</td><td>{{ d.category|default:"—" }}</td>
+    <td>{% if d.is_required %}<span class="badge ok">Required</span>{% else %}<span class="badge">Optional</span>{% endif %}</td>
+    <td>{% if d.is_default %}<span class="badge info">Every lead</span>{% else %}<span class="badge">Add-on</span>{% endif %}</td>
+    <td>{{ d.received_count }} lead{{ d.received_count|pluralize }}</td>
+    <td>{% if d.is_active %}<span class="badge ok">Active</span>{% else %}<span class="badge bad">Disabled</span>{% endif %}</td>
+    <td class="row-actions">
+      <a class="link" href="?edit={{ d.pk }}">Edit</a>
+      <form method="post" style="display:inline;">{% csrf_token %}<input type="hidden" name="id" value="{{ d.pk }}"><button class="link" name="op" value="toggle" style="border:none;background:none;cursor:pointer;">{% if d.is_active %}Disable{% else %}Enable{% endif %}</button></form>
+      <form method="post" style="display:inline;" onsubmit="return confirm('Remove {{ d.name }}? History is preserved.');">{% csrf_token %}<input type="hidden" name="id" value="{{ d.pk }}"><button class="link action-danger" name="op" value="delete" style="border:none;background:none;cursor:pointer;">Delete</button></form>
+    </td></tr>
+  {% empty %}<tr><td colspan="8" class="muted">No documents configured yet.</td></tr>{% endfor %}
+  </tbody></table></div></div>
+<div class="panel"><div class="panel-header"><h2>{% if editing %}Edit "{{ editing.name }}"{% else %}Add document{% endif %}</h2></div><div class="panel-body">
+  <form method="post">{% csrf_token %}{% if editing %}<input type="hidden" name="id" value="{{ editing.pk }}">{% endif %}<input type="hidden" name="op" value="save">
+    <div class="field-group"><label>Name</label>{{ form.name }}{% if form.name.errors %}<div class="field-error">{{ form.name.errors|striptags }}</div>{% endif %}</div>
+    <div class="field-group"><label>Category (optional)</label>{{ form.category }}</div>
+    <div class="toggle-row"><input type="checkbox" name="is_required" id="dr" {% if editing.is_required|default:True %}checked{% endif %}><label for="dr"><strong>Required</strong><span>Counts toward the completion percentage.</span></label></div>
+    <div class="toggle-row"><input type="checkbox" name="is_default" id="dd" {% if editing.is_default|default:True %}checked{% endif %}><label for="dd"><strong>Appears on every lead automatically</strong><span>Off = staff add it per lead as an extra document.</span></label></div>
+    <div class="toggle-row"><input type="checkbox" name="is_active" id="da" {% if editing.is_active|default:True %}checked{% endif %}><label for="da"><strong>Active</strong></label></div>
+    <button class="btn-primary btn-inline" style="margin-top:10px;">{% if editing %}Save changes{% else %}Add document{% endif %}</button>
+    {% if editing %}<a class="link" style="margin-left:12px;" href="{% url 'document_settings' %}">Cancel</a>{% endif %}
+  </form></div></div>
+</div>
+{% endblock %}

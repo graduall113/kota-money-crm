@@ -3,54 +3,23 @@
 {% block content %}
 <div class="page-header">
   <h1>My Leads</h1>
-  <p>Leads referred by you.</p>
+  <p>{{ subtitle }}</p>
 </div>
 
-<div class="stat-grid" style="grid-template-columns: repeat(3, 1fr);">
+<div class="stat-grid cols-6">
   {% for stat in stats %}
-  <div class="stat-card">
-    <div class="stat-label">{{ stat.label }}</div>
-    <div class="stat-value">{{ stat.value }}</div>
-  </div>
+  <div class="stat-card"><div class="stat-label">{{ stat.label }}</div><div class="stat-value">{{ stat.value }}</div></div>
   {% endfor %}
 </div>
 
+<div class="tabs">
+  <a href="{% url 'my_leads' %}" class="{% if not scope %}is-active{% endif %}">All mine</a>
+  <a href="{% url 'my_leads' %}?scope=assigned" class="{% if scope == 'assigned' %}is-active{% endif %}">Assigned to me</a>
+  <a href="{% url 'my_leads' %}?scope=referred" class="{% if scope == 'referred' %}is-active{% endif %}">Referred by me</a>
+</div>
+
 <div class="panel">
-  <div class="panel-header"><h2>Referred by you</h2></div>
-  {% if leads %}
-  <div class="table-scroll">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Customer</th><th>Phone</th><th>Requirement</th><th>Loan Amount</th>
-          <th>Status</th><th>Assigned To</th><th>Date</th><th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for lead in leads %}
-        <tr>
-          <td>{{ lead.customer_name }}</td>
-          <td><a href="tel:{{ lead.contact_number }}" class="link">{{ lead.contact_number }}</a></td>
-          <td>{{ lead.requirement|default:"—" }}</td>
-          <td>{% if lead.loan_amount %}₹{{ lead.loan_amount }}{% else %}—{% endif %}</td>
-          <td><span class="status-pill status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
-          <td>{% if lead.assigned_to %}{{ lead.assigned_to.get_full_name|default:lead.assigned_to.username }}{% else %}Unassigned{% endif %}</td>
-          <td>{{ lead.created_at|date:"d M Y" }}</td>
-          <td class="row-actions">
-            <a href="{% url 'lead_edit' lead.pk %}" class="link">Edit</a>
-            <a href="{% url 'lead_delete' lead.pk %}" class="link action-danger">Delete</a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-state">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto;"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.6 3.1-6.4 7-6.4s7 2.8 7 6.4"/></svg>
-    <h3>No leads referred yet</h3>
-    <p>Leads you refer through the form will appear here — not leads simply assigned to you.</p>
-  </div>
-  {% endif %}
+  {% include "partials/lead_filters.html" %}
+  {% include "partials/lead_table.html" %}
 </div>
 {% endblock %}
