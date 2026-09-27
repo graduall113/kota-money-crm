@@ -1,6 +1,6 @@
 <form method="get" class="lead-filter-form">
   <div class="filter-grid">
-    <div style="grid-column: span 2;"><label>Search (name, phone, Lead ID, email)</label><input type="text" name="q" value="{{ GET.q }}" placeholder="e.g. Rahul · 98290 · KM-1058 · name@mail.com"></div>
+    <div class="filter-search"><label>Search (name, phone, Lead ID, email)</label><input type="text" name="q" value="{{ GET.q }}" placeholder="e.g. Rahul · 98290 · KM-1058 · name@mail.com"></div>
     <div><label>Status</label>
       <select name="status"><option value="">All</option>{% for key, label in status_choices %}<option value="{{ key }}" {% if GET.status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div><label>Document status</label>
@@ -58,7 +58,7 @@
       <a href="{% url 'leads_export' %}?{{ querystring }}{% if querystring %}&{% endif %}format=xlsx" class="btn-secondary btn-sm" style="text-decoration:none;">Export Excel</a>
       {% endif %}
       {% if is_admin_view and total_count %}
-      <a href="{% url 'bulk_assign' %}?model=lead&query={{ querystring|urlencode }}" class="btn-secondary btn-sm" style="text-decoration:none;">Distribute filtered leads…</a>
+      <a href="{% url 'bulk_assign' %}?model=lead&query={{ querystring|urlencode }}" class="btn-secondary btn-sm full-row-action" style="text-decoration:none;">Distribute filtered leads…</a>
       {% endif %}
     </div>
   </div>

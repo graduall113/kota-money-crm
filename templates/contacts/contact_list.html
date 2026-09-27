@@ -3,12 +3,15 @@
 {% block content %}
 <div class="page-header with-actions">
   <div><h1>Contacts</h1><p>{% if is_admin_view %}Every imported and saved contact.{% else %}Contacts assigned to you.{% endif %} <span class="muted">{{ total_count }} record{{ total_count|pluralize }}.</span></p></div>
-  {% if is_admin_view %}<div class="page-actions"><a href="{% url 'import_new' %}" class="btn-primary">Import Data</a></div>{% endif %}
+  <div class="page-actions">
+    <a href="{% url 'contact_create' %}" class="btn-secondary" style="text-decoration:none;">+ Add Contact</a>
+    {% if is_admin_view %}<a href="{% url 'import_new' %}" class="btn-primary">Import Data</a>{% endif %}
+  </div>
 </div>
 <div class="panel">
   <form method="get">
     <div class="filter-grid">
-      <div style="grid-column: span 2;"><label>Search (name, phone, email)</label><input type="text" name="q" value="{{ GET.q }}"></div>
+      <div class="filter-search"><label>Search (name, phone, email)</label><input type="text" name="q" value="{{ GET.q }}"></div>
       <div><label>Status</label><select name="status"><option value="">All</option>{% for k, l in status_choices %}<option value="{{ k }}" {% if GET.status == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
       <div><label>City</label><input type="text" name="city" value="{{ GET.city }}"></div>
       {% if is_admin_view %}
@@ -28,14 +31,14 @@
         <a href="{{ request.path }}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a>
         {% if can_export %}<a href="{% url 'contacts_export' %}?{{ querystring }}" class="btn-secondary btn-sm" style="text-decoration:none;">Export CSV</a>
         <a href="{% url 'contacts_export' %}?{{ querystring }}{% if querystring %}&{% endif %}format=xlsx" class="btn-secondary btn-sm" style="text-decoration:none;">Export Excel</a>{% endif %}
-        {% if is_admin_view and total_count %}<a href="{% url 'bulk_assign' %}?model=contact&query={{ querystring|urlencode }}" class="btn-secondary btn-sm" style="text-decoration:none;">Distribute filtered contacts…</a>{% endif %}
+        {% if is_admin_view and total_count %}<a href="{% url 'bulk_assign' %}?model=contact&query={{ querystring|urlencode }}" class="btn-secondary btn-sm full-row-action" style="text-decoration:none;">Distribute filtered contacts…</a>{% endif %}
       </div>
     </div>
   </form>
   {% if contacts %}
   {% include "partials/bulk_bar.html" with model_name="contact" all_segments=segments %}
   <div class="table-scroll"><table class="data-table">
-    <thead><tr><th style="width:34px;"><input type="checkbox" id="checkAll" form="bulkForm"></th><th>Name</th><th>Phone</th><th>Email</th><th>City</th><th>Work Profile</th><th>Status</th><th>Segments</th><th>Batch</th><th>Reference By</th><th>Assigned To</th><th>Created</th></tr></thead>
+    <thead><tr><th style="width:34px;"><input type="checkbox" id="checkAll" form="bulkForm"></th><th>Name</th><th>Phone</th><th>Email</th><th>City</th><th>Work Profile</th><th>Status</th><th>Segments</th><th>Batch</th><th>Reference By</th><th>Assigned To</th><th>Created</th><th>Actions</th></tr></thead>
     <tbody>{% for c in contacts %}<tr>
       <td><input type="checkbox" class="row-check" name="ids" value="{{ c.pk }}" form="bulkForm"></td>
       <td><a href="{% url 'contact_detail' c.pk %}" class="link">{{ c.name }}</a></td>
@@ -45,7 +48,18 @@
       <td class="mono">{{ c.import_batch.code|default:"—" }}</td>
       <td>{% if c.reference_by %}{{ c.reference_by.get_full_name|default:c.reference_by.username }}{% else %}—{% endif %}</td>
       <td>{% if c.current_assigned_to %}{{ c.current_assigned_to.get_full_name|default:c.current_assigned_to.username }}{% else %}—{% endif %}</td>
-      <td class="nowrap">{{ c.created_at|date:"d/m/Y" }}</td></tr>{% endfor %}</tbody></table></div>
+      <td class="nowrap">{{ c.created_at|date:"d/m/Y" }}</td>
+      <td class="row-actions">
+        <a href="{% url 'contact_detail' c.pk %}" class="link">View</a>
+        {% if c.pk in deletable_ids %}
+        <form method="post" action="{% url 'contact_delete' c.pk %}" class="js-confirm" style="display:inline;"
+              data-confirm-title="Delete contact?" data-confirm-message="Are you sure you want to delete {{ c.name }}?" data-confirm-label="Delete">
+          {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <button type="submit" class="link action-danger" style="border:none;background:none;padding:0;cursor:pointer;">Delete</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>{% endfor %}</tbody></table></div>
   {% include "partials/pagination.html" %}
   {% else %}<div class="empty-state"><h3>No contacts found</h3><p>{% if is_admin_view %}Import a CSV/Excel file to add contacts.{% else %}Contacts assigned to you will appear here.{% endif %}</p></div>{% endif %}
 </div>

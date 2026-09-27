@@ -109,6 +109,30 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # -----------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------
+# Render captures stdout as the app's log stream, so a plain StreamHandler
+# on the console is all that's needed to see these in the Render dashboard.
+# Previously there was NO LOGGING config at all: any logger.info(...) call
+# anywhere in the app (e.g. crm/calling_api.py's [CALLING API] diagnostic
+# logs) would silently go nowhere, since Python's logging module only
+# auto-configures a WARNING-level "handler of last resort" with no
+# handlers attached to a custom logger. Root-caused this while adding the
+# calling-sync diagnostic logging — the logs would have been invisible in
+# production even after being added.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        "crm": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
+
+# -----------------------------------------------------------------
 # AUTH
 # -----------------------------------------------------------------
 LOGIN_URL = "login"

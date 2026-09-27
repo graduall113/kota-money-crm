@@ -25,31 +25,30 @@
 <div class="panel" style="margin-top:18px;">
   <div class="panel-header"><h2>Devices</h2></div>
   {% if devices %}
-  <div class="table-scroll"><table class="data-table">
-    <thead><tr><th>Label</th><th>Staff</th><th>Status</th><th>Last Synced</th><th>Paired</th><th></th></tr></thead>
-    <tbody>
-      {% for d in devices %}
-      <tr>
-        <td>{{ d.label|default:"—" }}</td>
-        <td>{{ d.staff.get_full_name|default:d.staff.username }}</td>
-        <td>
-          {% if not d.is_active %}<span class="badge bad">Revoked</span>
-          {% elif d.is_paired %}<span class="badge ok">Paired</span>
-          {% elif d.pairing_code %}<span class="badge warn">Code: {{ d.pairing_code }} (10 min)</span>
-          {% else %}<span class="badge">Not paired</span>{% endif %}
-        </td>
-        <td>{{ d.last_seen|date:"d/m/Y, H:i"|default:"Never" }}</td>
-        <td>{{ d.paired_at|date:"d/m/Y"|default:"—" }}</td>
-        <td>
-          <form method="post" action="{% url 'calling_device_toggle' d.pk %}" style="display:inline;">
-            {% csrf_token %}
-            <button class="link" style="background:none;border:none;padding:0;cursor:pointer;">{% if d.is_active %}Revoke{% else %}Re-enable{% endif %}</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table></div>
+  <div class="panel-body">
+  <div class="device-grid">
+    {% for d in devices %}
+    <div class="device-card">
+      <div class="dc-top">
+        <div class="dc-name">{{ d.label|default:"Device" }}</div>
+        {% if not d.is_active %}<span class="badge bad">Revoked</span>
+        {% elif d.is_paired %}<span class="badge ok">Paired</span>
+        {% elif d.pairing_code %}<span class="badge warn">Code: {{ d.pairing_code }}</span>
+        {% else %}<span class="badge">Not paired</span>{% endif %}
+      </div>
+      <div class="dc-meta">{{ d.staff.get_full_name|default:d.staff.username }}</div>
+      <div class="dc-meta">Last synced: {{ d.last_seen|date:"d/m/Y, H:i"|default:"Never" }}</div>
+      <div class="dc-meta">Paired: {{ d.paired_at|date:"d/m/Y"|default:"—" }}</div>
+      <div class="dc-actions">
+        <form method="post" action="{% url 'calling_device_toggle' d.pk %}">
+          {% csrf_token %}
+          <button class="btn-secondary btn-sm">{% if d.is_active %}Revoke{% else %}Re-enable{% endif %}</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  </div>
   {% else %}
   <div class="empty-state">
     <h3>No devices paired yet</h3>

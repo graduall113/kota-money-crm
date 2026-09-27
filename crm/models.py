@@ -369,6 +369,16 @@ class ImportBatch(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
+    # Undo / restore: when an admin undoes a completed import, every contact
+    # this batch actually *created* (import_batch=this batch — contacts that
+    # merely got updated because they already existed keep their original
+    # import_batch and are never touched) is soft-deleted rather than
+    # removed, so "Restore" can bring them back exactly as they were.
+    undone_at = models.DateTimeField(null=True, blank=True)
+    undone_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
     class Meta:
         ordering = ["-created_at"]
 
@@ -503,6 +513,14 @@ class Contact(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
+
+    # Soft delete — currently only ever set by "Undo Import" (see
+    # ImportBatch.undone_at). A soft-deleted contact is excluded from
+    # access.visible_contacts() (so it disappears from every list, export,
+    # segment and count) but nothing about it is actually removed, so
+    # "Restore" on the import can bring it back untouched.
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-id"]

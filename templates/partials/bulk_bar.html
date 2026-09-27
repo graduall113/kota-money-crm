@@ -17,6 +17,7 @@
       <option value="status">Change status</option>
       <option value="followup">Set follow-up</option>
       {% if is_admin_view and model_name == "contact" %}<option value="add_to_segment">Add to Segment…</option>{% endif %}
+      {% if is_admin_view and model_name == "contact" and segment %}<option value="remove_from_segment">Remove from this Segment…</option>{% endif %}
       {% if is_admin_view %}<option value="delete">Delete…</option>{% endif %}
     </select>
     <div class="bulk-fields">
@@ -37,12 +38,21 @@
         {% for seg in all_segments %}<option value="{{ seg.id }}">{{ seg.name }}</option>{% endfor %}
       </select>
       <input type="text" name="new_segment" placeholder="…or new segment name" data-for="add_to_segment">
+      {% if segment %}<input type="hidden" name="segment_id" data-for="remove_from_segment" value="{{ segment.pk }}">
+      <span class="muted" data-for="remove_from_segment" style="align-self:center;">from "{{ segment.name }}"</span>{% endif %}
     </div>
     <button type="submit" class="btn-primary btn-sm">Continue</button>
   </div>
 </form>
 <script>
 (function () {
+  // NOTE: this <script> is included above the <table> in the page (so the
+  // bulk bar can sit visually before the rows), but that means the table's
+  // #checkAll / .row-check checkboxes don't exist in the DOM yet at the
+  // moment this script tag runs. Deferring setup to DOMContentLoaded (fired
+  // once the whole page, including the table below, has been parsed) is
+  // what makes "select all" actually find and tick every row checkbox.
+  function init() {
   const form = document.getElementById('bulkForm'); if (!form) return;
   const boxes = () => Array.from(document.querySelectorAll('input.row-check'));
   const bar = document.getElementById('bulkBar'), count = document.getElementById('bulkCount');
@@ -69,5 +79,12 @@
   });
   form.addEventListener('submit', () => { boxes().forEach(b => { if (scope.value === 'filter') b.disabled = true; }); });
   refresh();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    // Script executed after the DOM was already ready (e.g. inserted late) — run immediately.
+    init();
+  }
 })();
 </script>

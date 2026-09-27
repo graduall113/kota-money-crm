@@ -16,6 +16,7 @@ Endpoints (see crm/urls.py):
 """
 import datetime
 import json
+import logging
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -26,6 +27,8 @@ from django.views.decorators.http import require_GET, require_POST
 from . import calling_analytics as analytics
 from .models import CallDevice, CallRecord, Contact, Lead, PrivilegedNumber, normalize_phone, user_label
 from .services import log_activity
+
+logger = logging.getLogger("crm.calling_api")
 
 MAX_BATCH = 500
 
@@ -105,11 +108,13 @@ def pair_device(request):
 def sync_calls(request):
     device = CallDevice.authenticate(_bearer_token(request))
     if device is None:
+        logger.info("[CALLING API] Sync request received — auth FAILED (invalid/revoked/expired token)")
         return _error("Invalid, revoked, or expired device token.", status=401)
 
     try:
         data = json.loads(request.body or "{}")
     except json.JSONDecodeError:
+        logger.info("[CALLING API] Sync request received (device=%s) — invalid JSON body", device.pk)
         return _error("Request body must be valid JSON.")
 
     events = data.get("calls")
@@ -117,6 +122,11 @@ def sync_calls(request):
         return _error("Body must include a 'calls' array.")
     if len(events) > MAX_BATCH:
         return _error(f"Too many events in one batch (max {MAX_BATCH}).")
+
+    logger.info(
+        "[CALLING API] Sync request received (device=%s, staff=%s)", device.pk, device.staff_id,
+    )
+    logger.info("[CALLING API] Calls received: %d", len(events))
 
     device.last_seen = timezone.now()
     device.save(update_fields=["last_seen"])
@@ -142,14 +152,20 @@ def sync_calls(request):
         ext_id = str(event.get("external_call_id") or "").strip()
         if not ext_id:
             errors.append({"error": "missing external_call_id", "event": event})
+            logger.info("[CALLING API] CallRecord NOT CREATED\nReason: missing external_call_id")
             continue
         if ext_id in existing_ids:
             skipped += 1
+            logger.info("[CALLING API] Duplicate: YES (external_call_id=%s) — already synced, skipping", ext_id)
             continue
 
         started_at = _parse_epoch_ms(event.get("started_at"))
         if started_at is None:
             errors.append({"error": "missing/invalid started_at", "external_call_id": ext_id})
+            logger.info(
+                "[CALLING API] CallRecord NOT CREATED\nReason: missing/invalid started_at (external_call_id=%s)",
+                ext_id,
+            )
             continue
 
         direction = event.get("direction") if event.get("direction") in (
@@ -165,6 +181,10 @@ def sync_calls(request):
             # all — not stored, not counted, not eligible for any status
             # change. The real phone call itself is untouched by any of this.
             ignored += 1
+            reason = "privileged number" if phone_norm in privileged_numbers else "no phone number on the event"
+            logger.info(
+                "[CALLING API] Phone matched: NO — %s (external_call_id=%s)", reason, ext_id,
+            )
             continue
 
         # CRM assignment is the single source of truth for whether THIS call,
@@ -177,13 +197,23 @@ def sync_calls(request):
             .order_by("-created_at").first()
         )
         contact = (
-            Contact.objects.filter(phone_normalized=phone_norm, current_assigned_to_id=device.staff_id)
+            Contact.objects.filter(phone_normalized=phone_norm, current_assigned_to_id=device.staff_id, is_deleted=False)
             .order_by("-id").first()
             if lead is None else None
         )
         if lead is None and contact is None:
             ignored += 1
+            logger.info(
+                "[CALLING API] Assigned staff matched: NO — no lead/contact assigned to staff=%s "
+                "for phone=%s (external_call_id=%s)", device.staff_id, phone_norm, ext_id,
+            )
             continue
+
+        logger.info(
+            "[CALLING API] Phone matched: YES, Assigned staff matched: YES "
+            "(external_call_id=%s, %s=%s)",
+            ext_id, "lead" if lead else "contact", lead.pk if lead else contact.pk,
+        )
 
         to_create.append(CallRecord(
             staff=device.staff, device=device, lead=lead, contact=contact,
@@ -195,13 +225,42 @@ def sync_calls(request):
             external_call_id=ext_id, source="android",
         ))
 
+    created_records = []
     if to_create:
         # ignore_conflicts=True makes the unique external_call_id constraint
         # the final word on duplicates even if two sync requests race — a
         # single bulk INSERT stays cheap however large call volume grows.
         CallRecord.objects.bulk_create(to_create, ignore_conflicts=True)
 
-        for record in to_create:
+        # CRITICAL: bulk_create(..., ignore_conflicts=True) does NOT tell us
+        # which rows actually landed in the table — Django can't populate
+        # .pk for any of them in this mode, precisely because some might have
+        # silently lost a unique-constraint race (e.g. the automatic
+        # CallStateReceiver-triggered sync and a manual "Sync Now" press
+        # landing at nearly the same moment, both racing to insert the same
+        # external_call_id). The previous version of this function looped
+        # over `to_create` directly and ran the NEW -> CONTACTED automation
+        # + activity logging unconditionally — which meant a request that
+        # LOST that race could still report "created" and flip the status,
+        # even though its own CallRecord was never actually written. That is
+        # exactly the "status changed but CallRecord missing" bug. Re-querying
+        # here is the only way to know, for certain, which rows really exist —
+        # the automation below now only ever runs against real, persisted rows.
+        attempted_ids = [r.external_call_id for r in to_create]
+        created_records = list(
+            CallRecord.objects.filter(external_call_id__in=attempted_ids).select_related("lead", "contact", "staff")
+        )
+        lost_race = len(attempted_ids) - len(created_records)
+        if lost_race > 0:
+            logger.info(
+                "[CALLING API] %d of %d attempted CallRecord(s) lost a concurrent duplicate race "
+                "— not counted as created, no status change applied for them",
+                lost_race, len(attempted_ids),
+            )
+
+        for record in created_records:
+            logger.info("[CALLING API] CallRecord CREATED: ID=%s", record.pk)
+
             # Auto timeline entry on the matched lead/contact only
             # (requirement #10 — this never runs for the manual "Call
             # Completed" button, which writes kind="call"; this always
@@ -229,6 +288,9 @@ def sync_calls(request):
             #   - the number is an eligible CRM lead/contact assigned to this
             #     staff member (already guaranteed above — ineligible calls
             #     never reach this loop at all)
+            #   - this exact CallRecord is confirmed persisted (see the
+            #     re-query above — never runs off an in-memory object that
+            #     might have lost an insert race)
             # Every other status (DOCUMENT PENDING, APPROVED, ...) is left
             # completely untouched, and repeat answered calls on an already-
             # CONTACTED lead just add another CallRecord with no status write.
@@ -244,6 +306,7 @@ def sync_calls(request):
                         status=Lead.STATUS_CONTACTED
                     )
                     if moved:
+                        logger.info("[CALLING API] Status changed: NEW -> CONTACTED (lead=%s)", record.lead_id)
                         try:
                             log_activity(
                                 record.staff, "status",
@@ -257,6 +320,7 @@ def sync_calls(request):
                         status=Contact.STATUS_CONTACTED
                     )
                     if moved:
+                        logger.info("[CALLING API] Status changed: NEW -> CONTACTED (contact=%s)", record.contact_id)
                         try:
                             log_activity(
                                 record.staff, "status",
@@ -266,8 +330,14 @@ def sync_calls(request):
                         except Exception:
                             pass
 
+    created_count = len(created_records)
+    logger.info(
+        "[CALLING API] Sync complete: created=%d skipped=%d ignored=%d errors=%d",
+        created_count, skipped, ignored, len(errors),
+    )
+
     return JsonResponse(
-        {"success": True, "created": len(to_create), "skipped": skipped, "ignored": ignored, "errors": errors},
+        {"success": True, "created": created_count, "skipped": skipped, "ignored": ignored, "errors": errors},
         status=201,
     )
 

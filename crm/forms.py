@@ -3,7 +3,7 @@ from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
 
 from .datefmt import DateTextField
-from .models import Lead, Segment, StaffProfile
+from .models import Contact, Lead, Segment, StaffProfile
 
 TEXT_WIDGET = {"class": "field-input"}
 
@@ -405,3 +405,47 @@ class SegmentForm(forms.ModelForm):
         if qs.exists():
             raise forms.ValidationError("A segment with this name already exists.")
         return name
+
+
+class ContactForm(forms.ModelForm):
+    """
+    Manual single-contact Add / Edit form. Reuses the existing Contact
+    model fields exactly as the importer populates them — no new fields,
+    no new model. Admin-only fields (assignment) are added dynamically by
+    the view, since a plain staff member creating a contact always owns it.
+    """
+
+    class Meta:
+        model = Contact
+        fields = [
+            "name", "phone", "email", "address", "city", "work_profile",
+            "income", "requirement", "loan_amount", "source", "status", "notes",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={**TEXT_WIDGET, "placeholder": "Full name"}),
+            "phone": forms.TextInput(attrs={**TEXT_WIDGET, "type": "tel", "inputmode": "tel", "placeholder": "e.g. 98765 43210"}),
+            "email": forms.EmailInput(attrs=TEXT_WIDGET),
+            "address": forms.TextInput(attrs=TEXT_WIDGET),
+            "city": forms.TextInput(attrs=TEXT_WIDGET),
+            "work_profile": forms.TextInput(attrs=TEXT_WIDGET),
+            "income": forms.TextInput(attrs=TEXT_WIDGET),
+            "requirement": forms.TextInput(attrs=TEXT_WIDGET),
+            "loan_amount": forms.NumberInput(attrs={**TEXT_WIDGET, "inputmode": "decimal", "step": "0.01"}),
+            "source": forms.TextInput(attrs={**TEXT_WIDGET, "placeholder": "e.g. Walk-in, Referral"}),
+            "status": forms.Select(attrs=TEXT_WIDGET),
+            "notes": forms.Textarea(attrs={**TEXT_WIDGET, "rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Never let this form create/edit a "converted" contact by hand —
+        # that transition only happens through the real convert-to-lead flow.
+        self.fields["status"].choices = [c for c in Contact.STATUS_CHOICES if c[0] != Contact.STATUS_CONVERTED]
+        self.fields["name"].required = True
+        self.fields["phone"].required = True
+
+    def clean_phone(self):
+        phone = self.cleaned_data.get("phone", "").strip()
+        if not phone:
+            raise forms.ValidationError("Enter a contact number.")
+        return phone

@@ -27,16 +27,25 @@
           <td>{{ member.staff_profile.phone|default:"—" }}</td>
           <td style="text-transform:capitalize;">{{ member.staff_profile.get_role_display }}</td>
           <td><span class="status-pill {% if member.staff_profile.is_account_active %}status-approved{% else %}status-rejected{% endif %}">{{ member.staff_profile.get_status_display }}</span></td>
-          <td style="white-space:nowrap;">
+          <td style="white-space:nowrap;" class="row-actions">
+            <a href="{% url 'staff_detail' member.id %}" class="link">View</a>
             <a href="{% url 'staff_edit' member.id %}" class="link">Edit</a>
             {% if member != request.user %}
-            &nbsp;&middot;&nbsp;
             <form method="post" action="{% url 'staff_toggle_status' member.id %}" style="display:inline;">
               {% csrf_token %}
               <button type="submit" class="link" style="background:none; border:none; padding:0; cursor:pointer; font:inherit;">
                 {% if member.staff_profile.is_account_active %}Deactivate{% else %}Activate{% endif %}
               </button>
             </form>
+            {% if not member.staff_profile.is_account_active %}
+            <form method="post" action="{% url 'staff_delete' member.id %}" class="js-confirm" style="display:inline;"
+                  data-confirm-title="Delete staff account?"
+                  data-confirm-message="Are you sure you want to permanently delete {{ member.get_full_name|default:member.username }}'s account? This cannot be undone."
+                  data-confirm-label="Delete">
+              {% csrf_token %}
+              <button type="submit" class="link action-danger" style="background:none; border:none; padding:0; cursor:pointer; font:inherit;">Delete</button>
+            </form>
+            {% endif %}
             {% endif %}
           </td>
         </tr>

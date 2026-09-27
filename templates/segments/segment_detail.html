@@ -25,9 +25,9 @@
   </form>
 
   {% if contacts %}
-  {% include "partials/bulk_bar.html" with model_name="contact" %}
+  {% include "partials/bulk_bar.html" with model_name="contact" querystring=bulk_query segment=segment %}
   <div class="table-scroll"><table class="data-table">
-    <thead><tr><th style="width:34px;"><input type="checkbox" id="checkAll" form="bulkForm"></th><th>Name</th><th>Phone</th><th>Email</th><th>City</th><th>Work Profile</th><th>Status</th><th>Assigned To</th><th>Reference By</th><th>Created</th>{% if can_manage %}<th></th>{% endif %}</tr></thead>
+    <thead><tr><th style="width:34px;"><input type="checkbox" id="checkAll" form="bulkForm"></th><th>Name</th><th>Phone</th><th>Email</th><th>City</th><th>Work Profile</th><th>Status</th><th>Assigned To</th><th>Reference By</th><th>Created</th>{% if can_manage %}<th>Actions</th>{% endif %}</tr></thead>
     <tbody>{% for c in contacts %}<tr>
       <td><input type="checkbox" class="row-check" name="ids" value="{{ c.pk }}" form="bulkForm"></td>
       <td><a href="{% url 'contact_detail' c.pk %}" class="link">{{ c.name }}</a></td>
@@ -36,7 +36,14 @@
       <td>{% if c.current_assigned_to %}{{ c.current_assigned_to.get_full_name|default:c.current_assigned_to.username }}{% else %}—{% endif %}</td>
       <td>{% if c.reference_by %}{{ c.reference_by.get_full_name|default:c.reference_by.username }}{% else %}—{% endif %}</td>
       <td class="nowrap">{{ c.created_at|date:"d/m/Y" }}</td>
-      {% if can_manage %}<td><form method="post" action="{% url 'segment_remove_contact' segment.pk c.pk %}" onsubmit="return confirm('Remove {{ c.name }} from this segment?');" style="display:inline;">{% csrf_token %}<button class="link action-danger" style="border:none;background:none;cursor:pointer;">Remove</button></form></td>{% endif %}
+      {% if can_manage %}<td>
+        <form method="post" action="{% url 'segment_remove_contact' segment.pk c.pk %}" class="js-confirm" style="display:inline;"
+              data-confirm-title="Remove from segment?"
+              data-confirm-message="Remove {{ c.name }} from &quot;{{ segment.name }}&quot;? {{ c.name }} stays in Contacts and keeps every lead — only this segment membership is removed."
+              data-confirm-label="Remove">
+          {% csrf_token %}<button type="submit" class="link action-danger" style="border:none;background:none;cursor:pointer;">Remove</button>
+        </form>
+      </td>{% endif %}
     </tr>{% endfor %}</tbody>
   </table></div>
   {% include "partials/pagination.html" %}

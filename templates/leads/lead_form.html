@@ -96,7 +96,7 @@
         <div class="help-text">Who works this lead in the CRM. "Reference by" stays with whoever created it.</div></div>
       {% endif %}
 
-      <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px;">{% if mode == "edit" %}Update Lead{% else %}Create Lead{% endif %}</button>
+      <button type="submit" class="btn-primary btn-inline">{% if mode == "edit" %}Update Lead{% else %}Create Lead{% endif %}</button>
       <a href="{% if mode == 'edit' %}{% url 'lead_detail' lead.pk %}{% else %}{% url 'dashboard' %}{% endif %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
     </form>
   </div>

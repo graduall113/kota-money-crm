@@ -1,0 +1,75 @@
+{% comment %}
+  One shared confirmation modal for the whole app. Any form or link that
+  should ask "are you sure?" before a destructive/irreversible action just
+  adds the classes/data-attributes below — no per-page markup needed.
+
+  On a <form>:   class="js-confirm" data-confirm-title="…" data-confirm-message="…" data-confirm-label="Delete"
+  On an <a>:     class="js-confirm-link" data-confirm-title="…" data-confirm-message="…" data-confirm-label="Delete"
+                 (navigates to href on confirm — only use for GET-safe, non-destructive links;
+                 destructive actions must be a <form method="post"> with js-confirm instead)
+
+  NOTE: this note block must stay as the block-style Django comment tag,
+  not the short hash-based inline comment syntax — that shorter syntax
+  only works for a single line and silently prints everything as literal
+  text the moment the comment spans multiple lines (which is exactly the
+  stray text that used to leak onto every page, since this partial is
+  included on every page via base.html).
+{% endcomment %}
+<div class="modal-overlay" id="confirmModalOverlay">
+  <div class="modal-box" role="alertdialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <h3 id="confirmModalTitle">Please confirm</h3>
+    <p id="confirmModalMessage"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary btn-sm" id="confirmModalCancel">Cancel</button>
+      <button type="button" class="btn-danger btn-sm" id="confirmModalOk">Delete</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var overlay = document.getElementById('confirmModalOverlay');
+  var titleEl = document.getElementById('confirmModalTitle');
+  var msgEl = document.getElementById('confirmModalMessage');
+  var okBtn = document.getElementById('confirmModalOk');
+  var cancelBtn = document.getElementById('confirmModalCancel');
+  var pendingForm = null, pendingHref = null;
+
+  function open(title, message, label) {
+    titleEl.textContent = title || 'Please confirm';
+    msgEl.textContent = message || 'Are you sure?';
+    okBtn.textContent = label || 'Delete';
+    overlay.classList.add('is-open');
+  }
+  function close() {
+    overlay.classList.remove('is-open');
+    pendingForm = null; pendingHref = null;
+  }
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target.closest ? e.target.closest('form.js-confirm') : null;
+    if (form && !form.dataset.confirmed) {
+      e.preventDefault();
+      pendingForm = form;
+      open(form.dataset.confirmTitle, form.dataset.confirmMessage, form.dataset.confirmLabel);
+    }
+  }, true);
+
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest ? e.target.closest('a.js-confirm-link') : null;
+    if (link) {
+      e.preventDefault();
+      pendingHref = link.getAttribute('href');
+      open(link.dataset.confirmTitle, link.dataset.confirmMessage, link.dataset.confirmLabel);
+    }
+  });
+
+  okBtn.addEventListener('click', function () {
+    if (pendingForm) { pendingForm.dataset.confirmed = '1'; pendingForm.submit(); }
+    else if (pendingHref) { window.location.href = pendingHref; }
+    close();
+  });
+  cancelBtn.addEventListener('click', close);
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && overlay.classList.contains('is-open')) close(); });
+})();
+</script>

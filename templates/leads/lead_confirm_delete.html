@@ -18,7 +18,7 @@
 
     <form method="post">
       {% csrf_token %}
-      <button type="submit" class="btn-primary" style="width:auto; padding:10px 22px; background:#b3401f;">Yes, delete this lead</button>
+      <button type="submit" class="btn-danger">Yes, delete this lead</button>
       <a href="{% url 'lead_detail' lead.pk %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
     </form>
   </div>

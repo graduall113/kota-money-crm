@@ -91,6 +91,13 @@ def segment_detail(request, segment_id):
     qs = filters.filter_contacts(base.select_related("reference_by", "current_assigned_to", "import_batch"), request.GET)
     page = filters.paginate(request, qs, per_page=25)
     total_all = segment.contact_links.count()  # true segment size, admin context
+    page_query = filters.querystring_without(request, "page")
+    # The bulk-action bar's "select all N matching records" resolves this same
+    # query again from scratch server-side, so it must carry `segment=` too —
+    # this page's own filters never include it (it's the URL path, not a GET
+    # param), and without it a "select all" here would wrongly reach every
+    # segment's contacts, not just this one.
+    bulk_query = f"segment={segment.pk}" + (f"&{page_query}" if page_query else "")
     return render(request, "segments/segment_detail.html", {
         "segment": segment, "page": page, "contacts": page.object_list,
         "total_count": page.paginator.count, "total_all": total_all,
@@ -98,7 +105,7 @@ def segment_detail(request, segment_id):
         "bulk_staff": services.active_staff(),
         "all_segments": Segment.objects.filter(is_active=True).order_by("name"),
         "status_choices": Contact.STATUS_CHOICES,
-        "querystring": filters.querystring_without(request, "page"),
+        "querystring": page_query, "bulk_query": bulk_query,
         "is_admin_view": admin, "active_page": "segments", "GET": request.GET,
         "has_filters": any(k for k in request.GET if k not in ("page", "per_page", "sort")),
     })

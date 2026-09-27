@@ -61,6 +61,26 @@
   <a class="btn-secondary btn-sm" href="{% url 'bulk_assign' %}?model=contact&batch_id={{ batch.pk }}">Reassign all…</a>
   <a class="btn-secondary btn-sm" href="{% url 'contacts' %}?import_batch={{ batch.pk }}">View records</a></div></div>
   {% if per_staff %}<div class="panel-body">{% for r in per_staff %}<span class="badge ok" style="margin-right:6px;">{{ r.current_assigned_to__first_name|default:r.current_assigned_to__username }}: {{ r.n }}</span>{% endfor %}</div>{% endif %}</div>
+
+{% if batch.status == 'completed' %}
+<div class="panel"><div class="panel-header"><h2>Undo this import</h2></div><div class="panel-body">
+  {% if batch.undone_at %}
+    <p class="muted">This import was undone on {{ batch.undone_at|date:"d/m/Y, H:i" }}{% if batch.undone_by %} by {{ batch.undone_by.get_full_name|default:batch.undone_by.username }}{% endif %}. {{ removed_count }} contact{{ removed_count|pluralize }} {{ removed_count|pluralize:"is,are" }} removed and can be brought back.</p>
+    <form method="post" action="{% url 'import_restore' batch.pk %}" class="js-confirm" style="display:inline;"
+          data-confirm-title="Restore this import?" data-confirm-message="Bring back the {{ removed_count }} contact{{ removed_count|pluralize }} removed from import {{ batch.code }}?" data-confirm-label="Restore">
+      {% csrf_token %}<button type="submit" class="btn-secondary btn-sm">Restore {{ removed_count }} contact{{ removed_count|pluralize }}</button>
+    </form>
+  {% elif removable_count %}
+    <p class="help-text">Removes the {{ removable_count }} contact{{ removable_count|pluralize }} this import created. Contacts that were merely updated (because they already existed) are never touched. This can be undone with Restore.</p>
+    <form method="post" action="{% url 'import_undo' batch.pk %}" class="js-confirm" style="display:inline;"
+          data-confirm-title="Undo this import?" data-confirm-message="Remove the {{ removable_count }} contact{{ removable_count|pluralize }} imported by {{ batch.code }}? You can restore them afterwards from this page." data-confirm-label="Undo Import">
+      {% csrf_token %}<button type="submit" class="link action-danger" style="border:1px solid var(--border); border-radius:var(--radius-sm); padding:7px 14px; background:none; cursor:pointer;">Undo Import ({{ removable_count }})</button>
+    </form>
+  {% else %}
+    <p class="muted">Nothing left from this import to undo.</p>
+  {% endif %}
+</div></div>
+{% endif %}
 {% endif %}
 
 {% if error_total %}

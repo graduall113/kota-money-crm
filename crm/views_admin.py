@@ -37,7 +37,7 @@ def settings_page(request):
         "n8n_effective": get_n8n_webhook_url(),
     }
     if section == "data" and admin:
-        ctx.update({"n_leads": Lead.objects.count(), "n_contacts": Contact.objects.count(),
+        ctx.update({"n_leads": Lead.objects.count(), "n_contacts": Contact.objects.filter(is_deleted=False).count(),
                     "n_batches": ImportBatch.objects.count(), "n_audit": AuditLog.objects.count()})
     return render(request, "settings.html", ctx)
 
@@ -219,7 +219,7 @@ def staff_detail(request, user_id):
     return render(request, "staff/staff_detail.html", {
         "target": target, "perf": perf,
         "leads_count": Lead.objects.filter(assigned_to=target).count(),
-        "contacts_count": Contact.objects.filter(current_assigned_to=target).count(),
+        "contacts_count": Contact.objects.filter(current_assigned_to=target, is_deleted=False).count(),
         "referred_count": Lead.objects.filter(reference_by=target).count(),
         "active_page": "staff",
     })

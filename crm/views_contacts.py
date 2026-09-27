@@ -12,7 +12,8 @@ from django.utils import timezone
 from . import access, exports, filters, jobs, services
 from .datefmt import parse_ddmmyyyy
 from .decorators import active_account_required, admin_required
-from .models import AssignmentHistory, BackgroundJob, Contact, ImportBatch, Lead, Segment, user_label
+from .forms import ContactForm
+from .models import AssignmentHistory, BackgroundJob, Contact, ImportBatch, Lead, Segment, normalize_phone, user_label
 
 
 # ------------------------------------------------------------------ contacts list / detail
@@ -24,8 +25,13 @@ def contacts_list(request):
         access.visible_contacts(user).select_related("reference_by", "current_assigned_to", "import_batch").prefetch_related("segments"), request.GET)
     page = filters.paginate(request, qs)
     visible = access.visible_contacts(user)
+    if admin:
+        deletable_ids = {c.pk for c in page.object_list}
+    else:
+        deletable_ids = {c.pk for c in page.object_list if access.can_delete_contact(user, c)}
     return render(request, "contacts/contact_list.html", {
         "page": page, "contacts": page.object_list, "total_count": page.paginator.count,
+        "deletable_ids": deletable_ids,
         "staff_members": services.active_staff() if admin else [],
         "bulk_staff": services.active_staff(),
         "status_choices": Contact.STATUS_CHOICES,
@@ -48,6 +54,7 @@ def contact_detail(request, contact_id):
         "contact": contact, "history": contact.assignment_history.all(),
         "timeline": contact.activities.all()[:100], "leads": contact.leads.all(),
         "can_edit": access.can_edit_contact(request.user, contact),
+        "can_delete": access.can_delete_contact(request.user, contact),
         "staff_members": services.active_staff() if admin else [],
         "can_manage_segments": access.can_manage_segments(request.user),
         "all_segments": Segment.objects.filter(is_active=True).order_by("name") if access.can_manage_segments(request.user) else [],
@@ -115,6 +122,102 @@ def contact_action(request, contact_id):
     return back
 
 
+@active_account_required
+def contact_delete(request, contact_id):
+    """
+    Single-contact delete. GET never deletes anything — only a CSRF-protected
+    POST does, and only after the confirmation modal on the calling page.
+    Deleting a Contact never touches its converted Lead(s) or call history
+    (both are SET_NULL on this FK) — only the contact record itself, its own
+    segment memberships, and its own assignment/activity history go with it.
+    """
+    contact = access.get_visible_contact_or_404(request.user, contact_id)
+    if not access.can_delete_contact(request.user, contact):
+        raise PermissionDenied("You can't delete this contact.")
+    if request.method != "POST":
+        return redirect("contact_detail", contact_id=contact.pk)
+
+    name, pk = contact.name, contact.pk
+    next_url = request.POST.get("next") or ""
+    contact.delete()
+    services.log_audit(request.user, "contact_deleted", f"Contact deleted: {name}", {}, "contact", pk)
+    messages.success(request, f"{name} was deleted.")
+    if next_url.startswith("/"):
+        return redirect(next_url)
+    return redirect("contacts")
+
+
+# ------------------------------------------------------------------ add / edit (manual, single contact)
+@active_account_required
+def contact_create(request):
+    """
+    Manual "+ Add Contact" — the counterpart to bulk import for the rare
+    one-off contact a staff member wants to save by hand. A plain staff
+    member always ends up owning what they create (reference_by = them,
+    assigned to them); an admin may hand it straight to another staff
+    member instead.
+    """
+    admin = access.is_admin(request.user)
+    duplicate = None
+    if request.method == "POST":
+        form = ContactForm(request.POST)
+        assignee = None
+        if admin:
+            to_user_id = request.POST.get("current_assigned_to")
+            if to_user_id and to_user_id.isdigit():
+                assignee = services.active_staff().filter(pk=to_user_id).first()
+        if form.is_valid():
+            phone_norm = normalize_phone(form.cleaned_data.get("phone", ""))
+            if phone_norm and request.POST.get("confirmed") != "1":
+                duplicate = Contact.objects.filter(phone_normalized=phone_norm).first()
+            if duplicate:
+                messages.warning(request, f"A contact with this phone number already exists: {duplicate.name}.")
+            else:
+                contact = form.save(commit=False)
+                contact.created_by = request.user
+                contact.reference_by = request.user
+                contact.current_assigned_to = assignee or request.user
+                contact.original_assigned_to = contact.current_assigned_to
+                contact.save()
+                if contact.current_assigned_to:
+                    AssignmentHistory.objects.create(
+                        contact=contact, action=AssignmentHistory.ACTION_ASSIGN, to_user=contact.current_assigned_to,
+                        to_name=user_label(contact.current_assigned_to), changed_by=request.user,
+                        changed_by_name=user_label(request.user), reason="Contact created")
+                services.log_activity(request.user, "created", "Contact created manually", contact=contact)
+                services.log_audit(request.user, "contact_created", f"Contact created: {contact.name}", {}, "contact", contact.pk)
+                messages.success(request, f"{contact.name} was added.")
+                return redirect("contact_detail", contact_id=contact.pk)
+    else:
+        form = ContactForm()
+    return render(request, "contacts/contact_form.html", {
+        "form": form, "mode": "create", "is_admin_view": admin, "duplicate": duplicate,
+        "staff_members": services.active_staff() if admin else [], "active_page": "contacts",
+    })
+
+
+@active_account_required
+def contact_edit(request, contact_id):
+    contact = access.get_visible_contact_or_404(request.user, contact_id)
+    if not access.can_edit_contact(request.user, contact):
+        raise PermissionDenied("You can't edit this contact.")
+    admin = access.is_admin(request.user)
+    if request.method == "POST":
+        form = ContactForm(request.POST, instance=contact)
+        if form.is_valid():
+            form.save()
+            services.log_activity(request.user, "edited", "Contact details updated", contact=contact)
+            services.log_audit(request.user, "contact_edited", f"Contact edited: {contact.name}", {}, "contact", contact.pk)
+            messages.success(request, "Contact updated.")
+            return redirect("contact_detail", contact_id=contact.pk)
+    else:
+        form = ContactForm(instance=contact)
+    return render(request, "contacts/contact_form.html", {
+        "form": form, "mode": "edit", "contact": contact, "is_admin_view": admin,
+        "staff_members": services.active_staff() if admin else [], "active_page": "contacts",
+    })
+
+
 # ------------------------------------------------------------------ export
 def _export(request, model_name):
     if not access.can_export(request.user):
@@ -144,11 +247,12 @@ def contacts_export(request):
 
 # ------------------------------------------------------------------ bulk actions (leads + contacts)
 STAFF_ACTIONS = {"status", "followup", "transfer"}
-ADMIN_ACTIONS = STAFF_ACTIONS | {"assign", "reassign", "delete", "add_to_segment"}
-CONTACT_ONLY_ACTIONS = {"add_to_segment"}  # segments are a Contact concept, not a Lead one
+ADMIN_ACTIONS = STAFF_ACTIONS | {"assign", "reassign", "delete", "add_to_segment", "remove_from_segment"}
+CONTACT_ONLY_ACTIONS = {"add_to_segment", "remove_from_segment"}  # segments are a Contact concept, not a Lead one
 ACTION_LABELS = {
     "assign": "assign", "reassign": "reassign", "transfer": "transfer", "status": "change the status of",
     "followup": "set a follow-up on", "delete": "permanently delete", "add_to_segment": "add to a segment",
+    "remove_from_segment": "remove from the segment",
 }
 
 
@@ -227,6 +331,12 @@ def bulk_action(request, model_name):
             problems.append("Choose a segment, or name a new one to create.")
         params["segment_id"] = segment.pk if segment else None
         params["segment_name"] = segment.name if segment else new_name
+    elif action == "remove_from_segment":
+        segment = Segment.objects.filter(pk=request.POST.get("segment_id") or 0).first()
+        if not segment:
+            problems.append("That segment could not be found.")
+        params["segment_id"] = segment.pk if segment else None
+        params["segment_name"] = segment.name if segment else ""
 
     qs = jobs.owned_only(model, jobs.resolve_queryset(model_name, user, scope), user)
     count = qs.count()
@@ -278,6 +388,8 @@ def bulk_action(request, model_name):
                 return redirect(back)
         params["segment_id"] = segment.pk
         title = f"Add {count:,} contacts to '{segment.name}'"
+    elif action == "remove_from_segment":
+        title = f"Remove {count:,} contacts from '{params.get('segment_name', 'segment')}'"
     else:
         title = f"{action.title()} {count:,} {model_name}s"
     job = services.new_job(action, title, count, params, user)

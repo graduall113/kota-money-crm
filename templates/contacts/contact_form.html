@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == "edit" %}Edit Contact{% else %}Add Contact{% endif %} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{% if mode == "edit" %}Edit Contact{% else %}Add Contact{% endif %}</h1>
+  {% if mode == "edit" %}
+  <p>Updating {{ contact.name }}.</p>
+  {% else %}
+  <p>Save a single contact by hand — for bulk contacts, use Import Data instead.</p>
+  {% endif %}
+</div>
+
+<div class="panel form-wrap" style="max-width:640px;">
+  <div style="padding:22px;">
+    {% if duplicate %}
+    <div class="alert alert-warning">
+      A contact with this phone number already exists: <strong>{{ duplicate.name }}</strong>.
+      Submit again to save this as a separate contact anyway, or <a class="link" href="{% url 'contact_detail' duplicate.pk %}">view the existing one</a>.
+    </div>
+    {% endif %}
+    <form method="post">
+      {% csrf_token %}
+      {% if duplicate %}<input type="hidden" name="confirmed" value="1">{% endif %}
+
+      <div class="field-group">
+        <label for="{{ form.name.id_for_label }}">Full Name</label>
+        {{ form.name }}
+        {% if form.name.errors %}<div class="field-error">{{ form.name.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.phone.id_for_label }}">Contact Number</label>
+        {{ form.phone }}
+        {% if form.phone.errors %}<div class="field-error">{{ form.phone.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.email.id_for_label }}">Email</label>
+        {{ form.email }}
+        {% if form.email.errors %}<div class="field-error">{{ form.email.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.address.id_for_label }}">Address</label>
+        {{ form.address }}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.city.id_for_label }}">City</label>
+        {{ form.city }}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.work_profile.id_for_label }}">Work Profile</label>
+        {{ form.work_profile }}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.income.id_for_label }}">Income</label>
+        {{ form.income }}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.requirement.id_for_label }}">Requirement</label>
+        {{ form.requirement }}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.loan_amount.id_for_label }}">Loan Amount</label>
+        {{ form.loan_amount }}
+        {% if form.loan_amount.errors %}<div class="field-error">{{ form.loan_amount.errors|striptags }}</div>{% endif %}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.source.id_for_label }}">Lead Source</label>
+        {{ form.source }}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.status.id_for_label }}">Status</label>
+        {{ form.status }}
+      </div>
+
+      <div class="field-group">
+        <label for="{{ form.notes.id_for_label }}">Notes</label>
+        {{ form.notes }}
+      </div>
+
+      {% if is_admin_view and mode == "create" %}
+      <div class="field-group">
+        <label for="id_current_assigned_to">Assign To</label>
+        <select name="current_assigned_to" id="id_current_assigned_to" class="field-input">
+          <option value="">Myself ({{ request.user.get_full_name|default:request.user.username }})</option>
+          {% for s in staff_members %}<option value="{{ s.id }}">{{ s.get_full_name|default:s.username }}</option>{% endfor %}
+        </select>
+        <div class="help-text">Leave as "Myself" to keep this contact assigned to you.</div>
+      </div>
+      {% endif %}
+
+      <button type="submit" class="btn-primary btn-inline">{% if mode == "edit" %}Save Changes{% else %}Add Contact{% endif %}</button>
+      <a href="{% if mode == 'edit' %}{% url 'contact_detail' contact.pk %}{% else %}{% url 'contacts' %}{% endif %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

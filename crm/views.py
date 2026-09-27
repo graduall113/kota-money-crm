@@ -187,7 +187,9 @@ def staff_toggle_status(request, user_id):
 def _staff_holdings(user):
     return {
         "leads": Lead.objects.filter(assigned_to=user).count(),
-        "contacts": Contact.objects.filter(current_assigned_to=user).count(),
+        "contacts": Contact.objects.filter(current_assigned_to=user, is_deleted=False).count(),
+        "call_records": user.call_records.count(),
+        "call_devices": user.call_devices.count(),
     }
 
 
@@ -237,6 +239,53 @@ def staff_remove(request, user_id):
     return render(request, "staff/staff_remove.html", {
         "target": target, "held": held, "others": others, "active_page": "staff",
     })
+
+
+@admin_required
+def staff_delete(request, user_id):
+    """
+    Permanently deletes a DEACTIVATED staff account — only when it is
+    genuinely safe to do so.
+
+    Leads/contacts still assigned to them are never silently lost: if any
+    remain, this redirects into the existing reassign wizard instead of
+    deleting anything. Call history is protected the same way but can't be
+    reassigned — CallDevice/CallRecord are both a hard CASCADE straight to
+    this User in the schema (by calling-system design, left untouched here),
+    so deleting the account would silently delete their call devices and
+    every synced call record with it. Rather than change that schema, the
+    safe path when call history exists is simply to leave the account
+    deactivated (deactivation already fully revokes their access).
+    """
+    target = get_object_or_404(User, pk=user_id)
+    if request.method != "POST":
+        return redirect("staff_list")
+    if target == request.user:
+        messages.error(request, "You can't delete your own account.")
+        return redirect("staff_list")
+    profile = target.staff_profile
+    if profile.is_account_active:
+        messages.error(request, f"Deactivate {user_label(target)} first, then delete the account.")
+        return redirect("staff_list")
+
+    held = _staff_holdings(target)
+    if held["leads"] or held["contacts"]:
+        messages.warning(request, f"{user_label(target)} still has assigned records — reassign them first.")
+        return redirect("staff_remove", user_id=target.pk)
+    if held["call_records"] or held["call_devices"]:
+        messages.error(
+            request,
+            f"{user_label(target)} has {held['call_records']:,} call record(s) and {held['call_devices']} "
+            "device(s) linked to this account. Deleting it would also permanently delete that call history, "
+            "so the account stays deactivated instead — deactivation already fully blocks their login and access.",
+        )
+        return redirect("staff_list")
+
+    name, pk = user_label(target), target.pk
+    services.log_audit(request.user, "staff_deleted", f"Staff deleted: {name}", {"email": target.email}, "user", pk)
+    target.delete()
+    messages.success(request, f"{name}'s account was permanently deleted.")
+    return redirect("staff_list")
 
 
 # =========================================================

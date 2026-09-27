@@ -119,10 +119,12 @@ def import_detail(request, batch_id):
         "review_pending": batch.review_rows.filter(applied=False, decision="").count(),
         "review_total": batch.review_rows.filter(applied=False).count(),
         "mapped": [(importer.FIELD_LABELS[k], batch.headers[i] if i < len(batch.headers) else "?") for k, i in batch.mapping.items()],
-        "assigned_count": batch.contacts.exclude(current_assigned_to=None).count(),
-        "contact_count": batch.contacts.count(),
-        "per_staff": batch.contacts.exclude(current_assigned_to=None).values("current_assigned_to__first_name", "current_assigned_to__username").annotate(n=Count("id")).order_by("-n"),
+        "assigned_count": batch.contacts.filter(is_deleted=False).exclude(current_assigned_to=None).count(),
+        "contact_count": batch.contacts.filter(is_deleted=False).count(),
+        "per_staff": batch.contacts.filter(is_deleted=False).exclude(current_assigned_to=None).values("current_assigned_to__first_name", "current_assigned_to__username").annotate(n=Count("id")).order_by("-n"),
         "segments": Segment.objects.filter(is_active=True).order_by("name"),
+        "removable_count": batch.contacts.filter(is_deleted=False).count(),
+        "removed_count": batch.contacts.filter(is_deleted=True).count(),
         "active_page": "imports",
     })
 
@@ -172,6 +174,59 @@ def import_start(request, batch_id):
     batch.status, batch.processed_rows = ImportBatch.STATUS_ANALYZED, 0
     batch.save(update_fields=["duplicate_policy", "assign_to_on_import", "add_to_segment", "source_label", "status", "processed_rows"])
     importer.start(batch.pk, "import")
+    return redirect("import_detail", batch_id=batch.pk)
+
+
+@admin_required
+def import_undo(request, batch_id):
+    """
+    Removes every contact this batch actually created (import_batch=this
+    batch — contacts that already existed and only got updated keep their
+    original import_batch and are never touched, so undo can never delete
+    data that predates the import). Soft delete only: "Restore Import"
+    below reverses it exactly.
+    """
+    batch = _batch(batch_id)
+    if request.method != "POST":
+        return redirect("import_detail", batch_id=batch.pk)
+    if batch.is_busy:
+        messages.error(request, "Wait for this import to finish before undoing it.")
+        return redirect("import_detail", batch_id=batch.pk)
+    if batch.undone_at:
+        messages.error(request, "This import was already undone.")
+        return redirect("import_detail", batch_id=batch.pk)
+    contacts = batch.contacts.filter(is_deleted=False)
+    n = contacts.count()
+    if not n:
+        messages.error(request, "There are no imported contacts left to remove.")
+        return redirect("import_detail", batch_id=batch.pk)
+    now = timezone.now()
+    contacts.update(is_deleted=True, deleted_at=now)
+    batch.undone_at, batch.undone_by = now, request.user
+    batch.save(update_fields=["undone_at", "undone_by"])
+    services.log_audit(request.user, "import_undone", f"Import {batch.code} undone: {n:,} contacts removed",
+                       {"batch": batch.code, "count": n}, "import", batch.pk)
+    messages.success(request, f"{n:,} contact{'s' if n != 1 else ''} from this import were removed.")
+    return redirect("import_detail", batch_id=batch.pk)
+
+
+@admin_required
+def import_restore(request, batch_id):
+    """Reverses import_undo — brings back exactly the contacts it soft-deleted."""
+    batch = _batch(batch_id)
+    if request.method != "POST":
+        return redirect("import_detail", batch_id=batch.pk)
+    if not batch.undone_at:
+        messages.error(request, "This import hasn't been undone, so there's nothing to restore.")
+        return redirect("import_detail", batch_id=batch.pk)
+    contacts = batch.contacts.filter(is_deleted=True)
+    n = contacts.count()
+    contacts.update(is_deleted=False, deleted_at=None)
+    batch.undone_at, batch.undone_by = None, None
+    batch.save(update_fields=["undone_at", "undone_by"])
+    services.log_audit(request.user, "import_restored", f"Import {batch.code} restored: {n:,} contacts brought back",
+                       {"batch": batch.code, "count": n}, "import", batch.pk)
+    messages.success(request, f"{n:,} contact{'s' if n != 1 else ''} were restored.")
     return redirect("import_detail", batch_id=batch.pk)
 
 

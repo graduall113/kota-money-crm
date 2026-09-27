@@ -60,6 +60,11 @@ input[type="text"],
 input[type="email"],
 input[type="password"],
 input[type="tel"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="search"],
+input[type="url"],
 select,
 textarea {
   width: 100%;
@@ -71,6 +76,10 @@ textarea {
   color: var(--text);
   background: var(--surface);
   transition: border-color 0.15s ease;
+}
+
+input[type="file"] {
+  max-width: 100%;
 }
 
 .field-input:focus,
@@ -114,33 +123,20 @@ textarea:focus {
   color: var(--accent-hover);
 }
 
-.btn-primary {
+/* Base .btn-primary/.btn-secondary (padding, color, border-radius, an
+   auto width, etc.) now live in style.css so every page shares one
+   canonical button system. The ONLY thing genuinely specific to the
+   centered login/register/reset card is that its buttons should run
+   full-width — so that's all this file adds, and only scoped to
+   `.auth-card`. This file used to define an unscoped `.btn-primary {
+   width: 100%; ... }`, and because this stylesheet is <link>ed on
+   every page (not just these auth pages), that width:100% silently
+   applied to every button in the whole CRM (Apply Filters, Export
+   CSV, Convert to lead, etc.) — that was the real root cause of
+   buttons showing as full-width blocks elsewhere in the app. */
+.auth-card .btn-primary,
+.auth-card .btn-secondary {
   width: 100%;
-  padding: 11px 16px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #ffffff;
-  font-size: 14.5px;
-  font-weight: 600;
-  font-family: "Sora", sans-serif;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.btn-primary:hover {
-  background: var(--accent-hover);
-}
-
-.btn-secondary {
-  padding: 10px 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
 }
 
 .auth-footer {

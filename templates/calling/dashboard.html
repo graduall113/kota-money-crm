@@ -32,17 +32,13 @@
   </form>
 </div>
 
-<div class="stat-grid cols-3" style="margin-top:18px;">
+<div class="stat-grid calling-grid" style="margin-top:18px;">
   <div class="stat-card"><div class="stat-label">Total Calls</div><div class="stat-value">{{ totals.total }}</div></div>
   <div class="stat-card"><div class="stat-label">Answered</div><div class="stat-value">{{ totals.answered }}</div></div>
   <div class="stat-card"><div class="stat-label">Successful Contacts</div><div class="stat-value">{{ totals.successful_contacts }}</div></div>
-</div>
-<div class="stat-grid cols-3" style="margin-top:10px;">
   <div class="stat-card"><div class="stat-label">No Answer</div><div class="stat-value">{{ totals.missed }}</div></div>
   <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value">{{ totals.rejected }}</div></div>
   <div class="stat-card"><div class="stat-label">Busy</div><div class="stat-value">{{ totals.busy }}</div></div>
-</div>
-<div class="stat-grid cols-3" style="margin-top:10px;">
   <div class="stat-card"><div class="stat-label">Failed / Cancelled</div><div class="stat-value">{{ totals.failed|add:totals.cancelled }}</div></div>
   <div class="stat-card"><div class="stat-label">Total Talk Time</div><div class="stat-value">{{ totals.talk_time }}</div></div>
   <div class="stat-card"><div class="stat-label">Avg Call Duration</div><div class="stat-value">{{ totals.avg_duration }}</div></div>

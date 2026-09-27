@@ -3,7 +3,8 @@
 {% block content %}
 <div class="page-header"><h1>Please confirm</h1><p>Nothing has been changed yet.</p></div>
 <div class="panel confirm-box {% if destructive %}danger{% endif %}"><div class="panel-body">
-  <p class="big">Are you sure you want to <strong>{{ verb }} {{ count }} {{ model_name }}{{ count|pluralize }}</strong>{% if to_names %} to <strong>{{ to_names|join:", " }}</strong>{% endif %}{% if action == "add_to_segment" %} — <strong>{% if params.segment_id %}{{ params.segment_name }}{% else %}{{ params.new_segment }} (new segment){% endif %}</strong>{% endif %}?</p>
+  <p class="big">Are you sure you want to <strong>{{ verb }} {{ count }} {{ model_name }}{{ count|pluralize }}</strong>{% if to_names %} to <strong>{{ to_names|join:", " }}</strong>{% endif %}{% if action == "add_to_segment" %} — <strong>{% if params.segment_id %}{{ params.segment_name }}{% else %}{{ params.new_segment }} (new segment){% endif %}</strong>{% elif action == "remove_from_segment" %} — <strong>{{ params.segment_name }}</strong>{% endif %}?</p>
+  {% if action == "remove_from_segment" %}<p class="muted">Contacts stay in Contacts and keep every lead and history — only their membership in this segment is removed.</p>{% endif %}
   {% if from_names %}<p class="muted">Currently held by: {% for who, n in from_names.items %}{{ who }} ({{ n }}){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   {% if params.method and params.method != 'one' %}<p class="muted">Method: {{ params.method }}</p>{% endif %}
   {% if destructive %}<p style="color:#b3401f;">This permanently deletes the selected records and cannot be undone.</p>{% endif %}

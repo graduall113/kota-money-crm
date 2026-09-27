@@ -14,7 +14,7 @@ def _dated(qs, params, field="created_at"):
 
 def staff_performance(params):
     today = timezone.localdate()
-    contacts = _dated(Contact.objects.exclude(current_assigned_to=None), params)
+    contacts = _dated(Contact.objects.exclude(current_assigned_to=None).filter(is_deleted=False), params)
     c_rows = {r["current_assigned_to"]: r for r in contacts.values("current_assigned_to").annotate(
         assigned=Count("id"),
         contacted=Count("id", filter=~Q(status=Contact.STATUS_NEW)),

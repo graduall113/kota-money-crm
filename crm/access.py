@@ -32,7 +32,11 @@ def visible_leads(user):
 def visible_contacts(user):
     from .models import Contact
 
-    qs = Contact.objects.all()
+    # Soft-deleted contacts (currently only ever produced by "Undo Import")
+    # never show up anywhere a normal user or admin looks — lists, search,
+    # exports, segments, counts, bulk actions. Restoring the import is the
+    # only way back.
+    qs = Contact.objects.filter(is_deleted=False)
     if is_admin(user):
         return qs
     cond = Q(current_assigned_to=user)
@@ -79,6 +83,12 @@ def can_delete_lead(user, lead):
     if is_admin(user):
         return True
     return lead.reference_by_id == user.id and lead.assigned_to_id in (None, user.id)
+
+
+def can_delete_contact(user, contact):
+    if is_admin(user):
+        return True
+    return contact.reference_by_id == user.id and contact.current_assigned_to_id in (None, user.id)
 
 
 def can_transfer_lead(user, lead):

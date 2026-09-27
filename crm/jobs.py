@@ -93,6 +93,10 @@ def execute_job(job_id):
             segment = Segment.objects.get(pk=p["segment_id"])
             added = services.bulk_add_to_segment(pks, segment, user, progress)
             result = {"added": added, "segment": segment.name}
+        elif job.kind == "remove_from_segment":
+            segment = Segment.objects.get(pk=p["segment_id"])
+            removed = services.bulk_remove_from_segment(pks, segment, user, progress)
+            result = {"removed": removed, "segment": segment.name}
         elif job.kind == "delete":
             if not is_admin(user):
                 raise PermissionError("Only admins can bulk delete.")

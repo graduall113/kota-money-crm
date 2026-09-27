@@ -470,6 +470,26 @@ def bulk_add_to_segment(pks, segment, by, progress=None):
     return added
 
 
+def bulk_remove_from_segment(pks, segment, by, progress=None):
+    """
+    Chunked removal for large selections (jobs.py) — one audit entry for the
+    whole run. Only removes the segment *membership* (ContactSegment rows);
+    the contacts themselves, their leads, and all their other data are
+    completely untouched.
+    """
+    removed = 0
+    for i in range(0, len(pks), CHUNK):
+        chunk = pks[i:i + CHUNK]
+        n, _ = ContactSegment.objects.filter(segment=segment, contact_id__in=chunk).delete()
+        removed += n
+        if progress:
+            progress(len(chunk))
+    if removed:
+        log_audit(by, "segment_contacts_removed", f"{removed:,} contact(s) removed from segment '{segment.name}'",
+                  {"segment": segment.name, "removed": removed}, "segment", segment.pk)
+    return removed
+
+
 def remove_contact_from_segment(segment, contact, by):
     deleted, _ = ContactSegment.objects.filter(segment=segment, contact=contact).delete()
     if deleted:

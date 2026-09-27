@@ -32,6 +32,20 @@
   box-sizing: border-box;
 }
 
+/* Defensive overflow guards — long unbroken content (long emails, long
+   pasted URLs/text in notes, etc.) should wrap or scroll inside its own
+   box instead of stretching the page horizontally. */
+img, svg, video, iframe, embed, object {
+  max-width: 100%;
+}
+
+.timeline .t-msg,
+.checklist label,
+.help-text,
+.badge {
+  overflow-wrap: break-word;
+}
+
 html,
 body {
   margin: 0;
@@ -87,6 +101,12 @@ a {
 .main {
   margin-left: var(--sidebar-width);
   width: calc(100% - var(--sidebar-width));
+  min-width: 0; /* flex items default to min-width:auto, which lets any
+    long/unbreakable content inside (a long name, a long email, a wide
+    table) force this item — and the whole page — wider than the
+    viewport. This is the real cause of most of the horizontal
+    "overflow" across pages; min-width:0 lets it shrink and scroll
+    its own contents (e.g. .table-scroll) instead of blowing out the page. */
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -209,9 +229,11 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 0 32px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  min-width: 0;
 }
 
 .topbar-menu-toggle {
@@ -240,6 +262,7 @@ a {
 .user-menu {
   position: relative;
   margin-left: auto;
+  min-width: 0;
 }
 
 .user-menu-trigger {
@@ -252,6 +275,8 @@ a {
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   transition: background 0.15s ease;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .user-menu-trigger:hover {
@@ -263,18 +288,28 @@ a {
   flex-direction: column;
   align-items: flex-start;
   line-height: 1.25;
+  min-width: 0;
+  max-width: 160px;
 }
 
 .user-menu-name {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-menu-role {
   font-size: 12px;
   color: var(--text-muted);
   text-transform: capitalize;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-menu-dropdown {
@@ -325,10 +360,16 @@ a {
   padding: 32px 32px 48px;
   max-width: 1240px;
   width: 100%;
+  min-width: 0;
 }
 
 .page-header {
   margin-bottom: 28px;
+}
+
+.page-header.with-actions > div:first-child {
+  min-width: 0;
+  flex: 1 1 220px;
 }
 
 .page-header h1 {
@@ -336,12 +377,14 @@ a {
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 0 0 6px;
+  overflow-wrap: break-word;
 }
 
 .page-header p {
   color: var(--text-muted);
   margin: 0;
   font-size: 14.5px;
+  overflow-wrap: break-word;
 }
 
 /* =========================================================
@@ -350,7 +393,7 @@ a {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 28px;
 }
@@ -386,6 +429,8 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
 }
 
 .panel-header h2 {
@@ -425,6 +470,8 @@ a {
 
 .table-scroll {
   overflow-x: auto;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .data-table {
@@ -499,6 +546,8 @@ a {
 .row-actions {
   display: flex;
   gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .row-actions .action-danger {
@@ -534,13 +583,11 @@ a {
 
 /* =========================================================
    RESPONSIVE
+   (Consolidated: each breakpoint has exactly one @media block for
+   it in this file — see the "UPGRADE ADDITIONS" responsive block
+   further down for the 1080px/560px rules that were previously
+   split into duplicate, easy-to-lose-track-of media queries.)
    ========================================================= */
-
-@media (max-width: 1080px) {
-  .stat-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
 
 @media (max-width: 900px) {
   .sidebar {
@@ -564,6 +611,10 @@ a {
     display: inline-flex;
   }
 
+  .topbar {
+    padding: 0 16px;
+  }
+
   .page {
     padding: 24px 18px 40px;
   }
@@ -577,13 +628,9 @@ a {
   }
 }
 
-@media (max-width: 560px) {
-  .stat-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .page-header h1 {
-    font-size: 21px;
+@media (max-width: 380px) {
+  .topbar {
+    padding: 0 12px;
   }
 
   .iframe-card {
@@ -604,18 +651,64 @@ a {
 .alert-warning { background: var(--gold-soft); color: #8a6a1f; }
 .alert-info { background: #e8f0fe; color: #2d5ea8; }
 
-.stat-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
-.stat-grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
+.stat-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stat-grid.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .stat-card.is-link { display: block; transition: border-color .15s ease; }
 .stat-card.is-link:hover { border-color: var(--accent); }
 .stat-card .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 
-.btn-sm { padding: 7px 14px !important; font-size: 13px !important; width: auto !important; }
-.btn-primary.btn-inline { width: auto; padding: 10px 22px; }
-.btn-danger { background: #b3401f; color: #fff; border: none; border-radius: var(--radius-sm); padding: 10px 18px; font-weight: 600; cursor: pointer; }
+/* =========================================================
+   BUTTONS — single canonical definition for every page.
+   ROOT CAUSE NOTE: these used to only exist in auth.css
+   (written for the centered login card) with `width: 100%`,
+   and because auth.css is <link>ed on every page (not just
+   the login/register pages), that width:100% silently applied
+   to every .btn-primary/.btn-secondary in the whole CRM —
+   Apply Filters, Export CSV, Convert to lead, Save changes,
+   etc. all inherited it. It was being fought piecemeal with
+   `!important` (.btn-sm) and one-off inline
+   `style="width:auto"` patches instead of being fixed at the
+   source. The real fix: define the base styles once, here,
+   with a sane default width, and make auth.css's full-width
+   look an override scoped to `.auth-card` only (see auth.css).
+   ========================================================= */
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-family: "Inter", sans-serif;
+}
+.btn-primary {
+  padding: 10px 20px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 14.5px;
+  font-weight: 600;
+  font-family: "Sora", sans-serif;
+  transition: background 0.15s ease;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary {
+  padding: 10px 16px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.btn-danger { background: #b3401f; color: #fff; border: none; padding: 10px 18px; font-weight: 600; }
 .btn-danger:hover { background: #963519; }
-a.btn-secondary, a.btn-primary { display: inline-flex; align-items: center; text-decoration: none; }
-a.btn-primary { width: auto; padding: 10px 20px; color: #fff; }
+.btn-primary.btn-inline { padding: 10px 22px; }
+.btn-sm { padding: 7px 14px; font-size: 13px; }
 
 .panel + .panel { margin-top: 18px; }
 .panel-body { padding: 20px 22px; }
@@ -629,10 +722,39 @@ a.btn-primary { width: auto; padding: 10px 20px; color: #fff; }
 .tabs a:hover { color: var(--text); }
 .tabs a.is-active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
-.filter-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+.filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
 .filter-grid label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
 .filter-grid input, .filter-grid select { padding: 8px 10px; font-size: 13px; }
-.filter-grid .filter-actions { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
+/* Search field spans 2 of the 4 desktop columns (was a `style="grid-column:
+   span 2"` inline attribute on the template). Moved into a real class
+   because at the 1-column mobile breakpoint a literal `span 2` inside a
+   grid with only 1 explicit column doesn't just get clamped — CSS Grid
+   creates an *implicit* 2nd column (auto-sized) to satisfy the span, which
+   both narrows that column to whatever the smallest unbreakable content in
+   it happens to be, AND pulls every other auto-placed filter field back
+   into a cramped 2-column zigzag instead of the intended single stacked
+   column. `grid-column: 1 / -1` in the 560px block below spans "however
+   many columns exist" instead of a fixed count, so it can't create one. */
+.filter-search { grid-column: span 2; }
+
+/* Filter action row: side-by-side by default (desktop/tablet), and a
+   deliberate 2-column grid on narrow phones instead of every button
+   falling to its own full-width line. DOM order already groups
+   Apply+Clear, then the two Export links, then Distribute — so a
+   plain 2-col grid naturally produces exactly that pairing; Distribute
+   gets `.full-row-action` so it spans both columns on its own row
+   instead of sitting half-width and off-balance.
+   The mobile grid-column override itself lives in the single
+   consolidated `@media (max-width: 560px)` block further down — see
+   the comment there for why the grid children (not just the tracks)
+   need `min-width: 0`. */
+.filter-grid .filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .filter-more summary { cursor: pointer; font-size: 13px; color: var(--accent); padding: 0 22px 12px; }
 .filter-more[open] summary { padding-bottom: 0; }
 
@@ -660,12 +782,27 @@ a.btn-primary { width: auto; padding: 10px 20px; color: #fff; }
 .pagination span.cur { background: var(--ink); color: #fff; border-color: var(--ink); }
 .pagination .disabled { opacity: .4; pointer-events: none; }
 
-.kv-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 24px; }
+.kv-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 24px; }
+.kv-grid > * { min-width: 0; }
 .kv-grid dt { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
 .kv-grid dd { margin: 0; font-size: 14.5px; word-break: break-word; }
-.two-col { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+/* .stack is a plain block div, so on its own it can't force .two-col
+   wider — but as a *grid item* of .two-col it still gets a browser
+   default "automatic minimum size" equal to the min-content width of
+   whatever it contains (same root cause as the filter-actions bug
+   below: a grid item's own auto min-width is independent of the
+   track's minmax() minimum). min-width: 0 on .two-col, every direct
+   child of it, and .stack itself removes that floor so long/won't
+   normally happen-to-be-unbreakable content (e.g. a panel that ends
+   up without its own overflow handling) shrinks and wraps instead of
+   pushing the column — and therefore the whole page — wider. */
+.two-col { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; min-width: 0; }
+.two-col > * { min-width: 0; }
 .two-col > .panel + .panel { margin-top: 18px; }
+.stack { min-width: 0; }
 .stack > * + * { margin-top: 18px; }
+.panel { min-width: 0; max-width: 100%; }
+.panel-body { min-width: 0; }
 
 .timeline { list-style: none; margin: 0; padding: 0; }
 .timeline li { position: relative; padding: 0 0 16px 22px; border-left: 2px solid var(--border); margin-left: 6px; }
@@ -694,6 +831,9 @@ a.btn-primary { width: auto; padding: 10px 20px; color: #fff; }
 .dist-table td, .dist-table th { vertical-align: middle; }
 .dist-table input[type="number"] { width: 110px; padding: 7px 9px; }
 .option-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+@media (max-width: 360px) {
+  .option-cards { grid-template-columns: 1fr; }
+}
 .option-card { border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 12px 14px; cursor: pointer; display: block; background: var(--surface); }
 .option-card:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 .option-card input { width: auto; margin-right: 8px; }
@@ -716,15 +856,211 @@ a.btn-primary { width: auto; padding: 10px 20px; color: #fff; }
 .confirm-box.danger { border-color: #e7b4a7; }
 
 @media (max-width: 1080px) {
-  .stat-grid.cols-6 { grid-template-columns: repeat(3, 1fr); }
-  .filter-grid { grid-template-columns: repeat(2, 1fr); }
-  .kv-grid { grid-template-columns: repeat(2, 1fr); }
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat-grid.cols-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kv-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .two-col, .settings-layout { grid-template-columns: 1fr; }
   .settings-nav { flex-direction: row; flex-wrap: wrap; }
 }
 @media (max-width: 560px) {
-  .stat-grid.cols-3, .stat-grid.cols-6 { grid-template-columns: 1fr 1fr; }
+  .stat-grid { grid-template-columns: 1fr; }
+  .stat-grid.cols-3, .stat-grid.cols-6 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .filter-grid, .kv-grid { grid-template-columns: 1fr; }
+  /* `1 / -1` spans "all of whatever columns exist" rather than a fixed
+     count of 2 — see the .filter-search comment above for why a literal
+     span 2 must not reach a single-column grid. */
+  .filter-search { grid-column: 1 / -1; }
   .filter-bar select, .filter-bar input, .bulk-bar select, .bulk-bar input { width: 100%; }
   .page-actions { width: 100%; }
+
+  .page-header h1 { font-size: 21px; }
+
+  /* Avatar-only user menu — name/role can't fit next to the hamburger
+     button at this width without forcing the topbar itself to overflow. */
+  .user-menu-text { display: none; }
+
+  /* Contacts/Leads filter action row (Apply Filters / Clear Filters /
+     Export CSV / Export Excel / Distribute…): a 2-column grid, with
+     Distribute spanning both columns via `.full-row-action`.
+     ROOT CAUSE of the overlap this replaces: `minmax(0, 1fr)` on the
+     TRACK stops the track itself from being forced wide by its
+     content, but each grid-item BUTTON still carries its own browser
+     default "automatic minimum size" (effectively its min-content —
+     i.e. its full nowrap text width, since these buttons are
+     `white-space: nowrap` by default). That per-item minimum is a
+     separate mechanism from the track's minmax() and isn't capped by
+     it, so at 375px "Clear Filters"/"Export Excel" etc. were still
+     rendering at their full intrinsic width and visually spilling
+     into the next cell — that's the "overlapping/clipping" behavior.
+     Setting min-width: 0 directly on the buttons (not just the
+     track) removes that floor; width/max-width: 100% then makes them
+     fill their cell via the grid's default stretch, and allowing the
+     text to wrap (instead of forcing nowrap) means a genuinely long
+     label like "Distribute filtered contacts…" wraps to two lines
+     inside its full-width row rather than overflowing it. */
+  .filter-grid .filter-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .filter-grid .filter-actions > * {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+  .filter-grid .filter-actions > .full-row-action {
+    grid-column: 1 / -1;
+  }
+
+  /* Contact/Lead detail "Actions" panel — Next follow-up date + time.
+     `.inline-form input/select`'s desktop `min-width: 140px` is a
+     per-field floor that two fields together can exceed the available
+     width by on a 320-375px phone (a native <input type="time">'s own
+     rendered width can push past that 140px on some browsers). Stack
+     to one field per row and let inputs take the full row instead. */
+  .inline-form {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .inline-form input,
+  .inline-form select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* Several .inline-form forms (e.g. "Log call" / "Update status" on
+     the lead detail page, "Add extra document") put their submit
+     button directly inside the form rather than inside a
+     .field-group. Grid's default stretch would otherwise make that
+     button fill the full row too — and the button-CSS rule above is
+     explicit that buttons should stay auto-width outside of a
+     dedicated action grid, so pin these back to their natural size. */
+  .inline-form > .btn-primary,
+  .inline-form > .btn-secondary,
+  .inline-form > .btn-danger {
+    justify-self: start;
+    width: auto;
+  }
+}
+
+/* =========================================================
+   CONFIRMATION MODAL (shared — see partials/confirm_modal.html)
+   ========================================================= */
+
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 33, 61, 0.45);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-overlay.is-open { display: flex; }
+.modal-box {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.modal-box h3 { margin: 0 0 10px; font-size: 17px; }
+.modal-box p { margin: 0 0 20px; color: var(--text-muted); font-size: 14px; line-height: 1.5; word-break: break-word; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.modal-actions button { min-width: 88px; }
+@media (max-width: 480px) {
+  .modal-box { padding: 18px; }
+  .modal-actions { flex-direction: column-reverse; }
+  .modal-actions button { width: 100%; min-width: 0; }
+}
+
+/* =========================================================
+   SELECT-ALL / MULTI-SELECT TABLE HEADER ROW
+   ========================================================= */
+
+.select-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+.select-bar strong { color: var(--text); }
+
+/* =========================================================
+   CALLING PAGES — symmetrical stat grid + device/number cards
+   ========================================================= */
+
+.stat-grid.calling-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 900px) {
+  .stat-grid.calling-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .stat-grid.calling-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .stat-grid.calling-grid .stat-card { padding: 14px; }
+  .stat-grid.calling-grid .stat-value { font-size: 20px; }
+}
+
+.device-grid, .number-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  /* 260px tracks don't fit inside a 320-414px viewport once page + panel
+     padding is subtracted — this is the real cause of the "Calling Devices"
+     horizontal overflow, not something a body-level overflow-x:hidden
+     would actually fix. One column at this width instead. */
+  .device-grid, .number-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.device-card, .number-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.device-card .dc-top, .number-card .nc-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.device-card .dc-name, .number-card .nc-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  word-break: break-word;
+  min-width: 0;
+}
+.device-card .dc-meta, .number-card .nc-meta {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+.device-card .dc-actions, .number-card .nc-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 8px;
 }

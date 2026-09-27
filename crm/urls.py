@@ -76,9 +76,12 @@ urlpatterns = [
 
     # Contacts
     path("contacts/", views_contacts.contacts_list, name="contacts"),
+    path("contacts/add/", views_contacts.contact_create, name="contact_create"),
     path("contacts/export/", views_contacts.contacts_export, name="contacts_export"),
     path("contacts/<int:contact_id>/", views_contacts.contact_detail, name="contact_detail"),
+    path("contacts/<int:contact_id>/edit/", views_contacts.contact_edit, name="contact_edit"),
     path("contacts/<int:contact_id>/action/", views_contacts.contact_action, name="contact_action"),
+    path("contacts/<int:contact_id>/delete/", views_contacts.contact_delete, name="contact_delete"),
 
     # Bulk actions + jobs
     path("bulk/<str:model_name>/", views_contacts.bulk_action, name="bulk_action"),
@@ -93,6 +96,8 @@ urlpatterns = [
     path("imports/<int:batch_id>/progress/", views_import.import_progress, name="import_progress"),
     path("imports/<int:batch_id>/start/", views_import.import_start, name="import_start"),
     path("imports/<int:batch_id>/revalidate/", views_import.import_revalidate, name="import_revalidate"),
+    path("imports/<int:batch_id>/undo/", views_import.import_undo, name="import_undo"),
+    path("imports/<int:batch_id>/restore/", views_import.import_restore, name="import_restore"),
     path("imports/<int:batch_id>/review/", views_import.import_review, name="import_review"),
     path("imports/<int:batch_id>/errors/", views_import.import_errors, name="import_errors"),
 
@@ -108,5 +113,6 @@ urlpatterns = [
     path("staff/<int:user_id>/", views_admin.staff_detail, name="staff_detail"),
     path("staff/<int:user_id>/edit/", views.staff_edit, name="staff_edit"),
     path("staff/<int:user_id>/remove/", views.staff_remove, name="staff_remove"),
+    path("staff/<int:user_id>/delete/", views.staff_delete, name="staff_delete"),
     path("staff/<int:user_id>/toggle-status/", views.staff_toggle_status, name="staff_toggle_status"),
 ]
