@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Attendance Devices · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Attendance Devices</h1>
+  <p>Trusted devices for Start Day. This is separate from <a class="link" href="{% url 'calling_devices' %}">Calling Devices</a> (the Android calling app), which is unaffected. Enforcement is switched on under <a class="link" href="{% url 'settings_page' %}?section=attendance">Settings → Attendance Verification</a>.</p>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Enrol a device</h2></div>
+  <form method="post" action="{% url 'attendance_device_new' %}" class="inline-form" style="padding:16px 22px;">
+    {% csrf_token %}
+    <label>Staff
+      <select name="staff" required>
+        <option value="">Choose staff…</option>
+        {% for s in staff_members %}<option value="{{ s.pk }}">{{ s.get_full_name|default:s.username }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Label <input type="text" name="label" placeholder="e.g. Rahul's laptop" maxlength="100"></label>
+    <button class="btn-primary btn-sm">Generate enrolment code</button>
+  </form>
+  <p class="muted" style="padding:0 22px 16px;">The code is valid for 30 minutes and works once, only for the chosen person. They log in on the device to trust and enter it on the Attendance page. Revoke a device below to stop it counting immediately.</p>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Devices</h2></div>
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Staff</th><th>Label</th><th>Status</th><th>Enrolled</th><th>Last seen</th><th>Last IP</th><th></th></tr></thead>
+    <tbody>
+    {% for d in devices %}
+      <tr>
+        <td>{{ d.user.get_full_name|default:d.user.username }}</td>
+        <td>{{ d.label|default:"—" }}<div class="muted">{{ d.user_agent|truncatechars:60 }}</div></td>
+        <td>{% if d.state == 'trusted' %}<span class="badge ok">Trusted</span>{% elif d.state == 'revoked' %}<span class="badge bad">Revoked</span>{% elif d.state == 'pending' %}<span class="badge warn">Code issued</span>{% else %}<span class="badge">Code expired</span>{% endif %}</td>
+        <td>{{ d.enrolled_at|date:"d/m/Y H:i"|default:"—" }}</td>
+        <td>{{ d.last_seen_at|date:"d/m/Y H:i"|default:"—" }}</td>
+        <td>{{ d.last_ip|default:"—" }}</td>
+        <td>{% if d.is_active %}<form method="post" action="{% url 'attendance_device_revoke' d.pk %}">{% csrf_token %}<button class="btn-danger btn-sm">Revoke</button></form>{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7" class="muted">No devices yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

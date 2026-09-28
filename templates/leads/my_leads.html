@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block title %}My Leads · Kota Money CRM{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>My Leads</h1>
-  <p>{{ subtitle }}</p>
+<div class="page-header with-actions">
+  <div>
+    <h1>My Leads</h1>
+    <p>{{ subtitle }}</p>
+  </div>
+  <a class="btn-primary" href="{% url 'lead_create' %}">+ Add New Lead</a>
 </div>
 
 <div class="stat-grid cols-6">

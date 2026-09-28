@@ -1,7 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from . import api, calling_api, views, views_admin, views_calling, views_contacts, views_import, views_segments
+from . import api, calling_api, views, views_admin, views_attendance, views_calling, views_contacts, views_import, views_segments, views_staff_attendance
 
 urlpatterns = [
     # Auth
@@ -43,6 +43,25 @@ urlpatterns = [
     path("api/calling/sync/", calling_api.sync_calls, name="api_calling_sync"),
     path("api/calling/daily/", calling_api.daily_report, name="api_calling_daily"),
 
+    # Staff attendance (Start Day / End Day) — POST-only actions, server-side state
+    path("attendance/", views_attendance.attendance_page, name="attendance"),
+    path("attendance/start/", views_attendance.attendance_start, name="attendance_start"),
+    path("attendance/end/", views_attendance.attendance_end, name="attendance_end"),
+    path("attendance/device/enroll/", views_attendance.attendance_device_enroll, name="attendance_device_enroll"),
+    # Attendance verification - admin only (real permission checks, not hidden links)
+    path("attendance/events/", views_attendance.admin_events, name="attendance_events"),
+    path("attendance/events/<int:event_id>/review/", views_attendance.admin_event_review, name="attendance_event_review"),
+    path("attendance/override/", views_attendance.admin_override_start, name="attendance_override"),
+    path("attendance/devices/", views_attendance.admin_devices, name="attendance_devices"),
+    path("attendance/devices/new/", views_attendance.admin_device_new, name="attendance_device_new"),
+    path("attendance/devices/<int:device_id>/revoke/", views_attendance.admin_device_revoke, name="attendance_device_revoke"),
+
+    # Staff Attendance admin dashboard (Feature 6) - admin only, enforced in the views
+    path("staff-attendance/", views_staff_attendance.staff_attendance, name="staff_attendance"),
+    path("staff-attendance/export/", views_staff_attendance.staff_attendance_export, name="staff_attendance_export"),
+    path("staff-attendance/<int:pk>/", views_staff_attendance.staff_attendance_detail, name="staff_attendance_detail"),
+    path("staff-attendance/<int:pk>/correct/", views_staff_attendance.staff_attendance_correct, name="staff_attendance_correct"),
+
     # CRM — dashboard + leads
     path("", views.dashboard, name="dashboard"),
     path("leads/add/", views.lead_create, name="lead_create"),
@@ -62,6 +81,7 @@ urlpatterns = [
     path("calling/devices/", views_calling.device_list, name="calling_devices"),
     path("calling/devices/pair/", views_calling.device_pair_new, name="calling_device_pair"),
     path("calling/devices/<int:device_id>/toggle/", views_calling.device_toggle, name="calling_device_toggle"),
+    path("calling/devices/<int:device_id>/delete/", views_calling.device_delete, name="calling_device_delete"),
     path("calling/privileged-numbers/", views_calling.privileged_numbers, name="calling_privileged_numbers"),
     path("calling/privileged-numbers/<int:number_id>/toggle/", views_calling.privileged_number_toggle, name="calling_privileged_number_toggle"),
 

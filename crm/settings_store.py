@@ -18,9 +18,23 @@ DEFAULTS = {
     "import_chunk_size": "2000",
     "import_max_file_mb": "100",
     "import_default_duplicate_policy": "skip",
+    # --- Attendance verification (Feature 5). Everything is OFF until an admin
+    # configures it, so deploying this can never lock anybody out by surprise.
+    "att_office_lat": "",             # decimal degrees; set by an admin, never in code
+    "att_office_lng": "",
+    "att_geofence_radius_m": "200",
+    "att_max_accuracy_m": "100",      # worse (larger) GPS accuracy than this -> "try again"
+    "att_office_ips": "",             # IPs / CIDRs, one per line or comma-separated
+    "att_require_geofence": "0",
+    "att_require_office_ip": "0",
+    "att_require_trusted_device": "0",
+    "att_repeat_threshold": "5",      # failed Start attempts in a day before a Repeated Attempt flag
 }
 
-BOOL_KEYS = {"n8n_enabled", "referrer_keeps_access", "staff_can_transfer", "staff_can_export", "allow_public_registration"}
+BOOL_KEYS = {
+    "n8n_enabled", "referrer_keeps_access", "staff_can_transfer", "staff_can_export", "allow_public_registration",
+    "att_require_geofence", "att_require_office_ip", "att_require_trusted_device",
+}
 
 
 def get_setting(key, default=""):

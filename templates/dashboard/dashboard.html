@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Dashboard · Kota Money CRM{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>Dashboard</h1>
-  <p>{% if is_admin_view %}A global overview of leads, contacts and team activity.{% else %}Your leads, contacts and follow-ups — only data you're authorized to see.{% endif %}</p>
+<div class="page-header with-actions">
+  <div>
+    <h1>Dashboard</h1>
+    <p>{% if is_admin_view %}A global overview of leads, contacts and team activity.{% else %}Your leads, contacts and follow-ups — only data you're authorized to see.{% endif %}</p>
+  </div>
+  <a class="btn-primary" href="{% url 'lead_create' %}">+ Add New Lead</a>
 </div>
 
 <div class="stat-grid cols-6">

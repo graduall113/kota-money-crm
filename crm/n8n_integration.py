@@ -40,7 +40,12 @@ def build_lead_payload(lead):
     which are a separate, unrelated concept. See models.py / forms.py.
     """
     return {
+        # "lead_id" is the numeric database id and MUST stay numeric — the
+        # existing n8n workflow already consumes it. The human-readable ID is a
+        # separate, additive field: "lead_reference_id" (e.g. "KM-1058"). It is
+        # what the Google Sheet's "Lead ID" column is filled from.
         "lead_id": lead.pk,
+        "lead_reference_id": lead.display_id,
         "date": lead.form_date.strftime("%d/%m/%Y") if lead.form_date else "",
         "name": lead.customer_name,
         "contact_no": str(lead.contact_number or ""),
@@ -72,6 +77,10 @@ def send_lead_to_n8n(lead):
     # back to settings.N8N_LEAD_WEBHOOK_URL (env var) when none is saved.
     from .settings_store import get_bool, get_n8n_webhook_url
 
+    if lead.pk is None:
+        # An unsaved Lead has no Lead ID yet; never send a row without one.
+        return False, "Lead has not been saved yet, so it has no Lead ID."
+
     if not get_bool("n8n_enabled"):
         return False, "n8n integration is switched off in Settings."
     webhook_url = get_n8n_webhook_url()
@@ -86,13 +95,20 @@ def send_lead_to_n8n(lead):
         return False, error_message
 
     payload = build_lead_payload(lead)
-    logger.info("Sending lead %s to n8n webhook %s", lead.pk, webhook_url)
+    logger.info("Sending lead %s (%s) to n8n webhook %s", lead.pk, payload["lead_reference_id"], webhook_url)
 
     try:
         response = requests.post(
             webhook_url,
             json=payload,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                # Stable per Lead, identical on every delivery attempt. n8n can
+                # use it (or, better, the Sheet's "Lead ID" column via
+                # "Append or Update Row") to make a repeated delivery a no-op
+                # instead of a second spreadsheet row. See docs/n8n_lead_id_setup.md.
+                "Idempotency-Key": f"lead-{payload['lead_reference_id']}",
+            },
             timeout=DEFAULT_TIMEOUT_SECONDS,
         )
         response.raise_for_status()

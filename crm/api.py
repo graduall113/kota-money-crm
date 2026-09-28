@@ -154,6 +154,7 @@ def create_lead(request):
                     "success": True,
                     "message": "Duplicate submission — existing lead returned.",
                     "lead_id": existing.pk,
+                    "lead_reference_id": existing.display_id,
                     "duplicate": True,
                 }
             )
@@ -195,6 +196,7 @@ def create_lead(request):
 
     # 7. Return JSON success response.
     return JsonResponse(
-        {"success": True, "message": "Lead created successfully", "lead_id": lead.pk},
+        {"success": True, "message": "Lead created successfully", "lead_id": lead.pk,
+         "lead_reference_id": lead.display_id},
         status=201,
     )

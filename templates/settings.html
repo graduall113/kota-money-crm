@@ -50,6 +50,25 @@
         <div class="toggle-row"><input type="checkbox" name="allow_public_registration" id="s5" {% if s.allow_public_registration %}checked{% endif %}><label for="s5"><strong>Allow public self-registration</strong><span>Off = new accounts can only be created by an Admin under Staff Management.</span></label></div>
         <button class="btn-primary btn-inline">Save</button></form>
 
+    {% elif section == "attendance" %}
+      <h2 style="margin-top:0;">Attendance Verification</h2>
+      <p class="help-text">Layered checks on <strong>Start Day</strong>: office location, GPS accuracy, office network and a registered device. Every check is decided on the server. These add friction against everyday misuse; no browser-based method is tamper-proof, so problems are recorded as neutral events for you to review under <a class="link" href="{% url 'attendance_events' %}">Attendance Review</a>{% if att_open_events %} ({{ att_open_events }} open){% endif %}. <strong>End Day is never blocked</strong>.</p>
+      {% for p in att_problems %}<div class="notice warn" style="margin:10px 0;padding:10px 14px;border:1px solid #f0c36d;background:#fff8e6;border-radius:8px;">{{ p }}</div>{% endfor %}
+      <form method="post"><input type="hidden" name="section" value="attendance">{% csrf_token %}
+        <h3>Office location</h3>
+        <div class="field-group"><label>Office latitude</label><input type="text" name="att_office_lat" value="{{ s.att_office_lat }}" placeholder="e.g. 25.123456" inputmode="decimal"></div>
+        <div class="field-group"><label>Office longitude</label><input type="text" name="att_office_lng" value="{{ s.att_office_lng }}" placeholder="e.g. 75.123456" inputmode="decimal"><div class="help-text">Copy from Google Maps: right-click the office pin and click the coordinates.</div></div>
+        <div class="field-group"><label>Geofence radius (metres)</label><input type="number" name="att_geofence_radius_m" value="{{ s.att_geofence_radius_m }}" min="30" max="2000"><div class="help-text">30–2000. 100–300 m suits most offices.</div></div>
+        <div class="field-group"><label>GPS accuracy threshold (metres)</label><input type="number" name="att_max_accuracy_m" value="{{ s.att_max_accuracy_m }}" min="10" max="1000"><div class="help-text">A reading less precise than this asks the person to retry (nobody is blocked for one bad reading). Desktop Wi-Fi positioning is often 50–500 m; raise this if laptops at the office keep failing.</div></div>
+        <h3>Office network</h3>
+        <div class="field-group"><label>Allowed office public IPs / CIDRs</label><textarea name="att_office_ips" rows="3" placeholder="203.0.113.10&#10;198.51.100.0/28">{{ s.att_office_ips }}</textarea><div class="help-text">One per line or comma-separated. Leave empty if your office IP is not static. You currently connect from <strong>{{ att_detected_ip }}</strong> as far as the server can tell.</div></div>
+        <h3>Enforcement (Start Day)</h3>
+        <div class="toggle-row"><input type="checkbox" name="att_require_geofence" id="a1" {% if s.att_require_geofence %}checked{% endif %}><label for="a1"><strong>Require geofence</strong><span>Start Day must be from within the radius, with acceptable GPS accuracy.</span></label></div>
+        <div class="toggle-row"><input type="checkbox" name="att_require_office_ip" id="a2" {% if s.att_require_office_ip %}checked{% endif %}><label for="a2"><strong>Require office IP</strong><span>Start Day must come from an allowed IP above.</span></label></div>
+        <div class="toggle-row"><input type="checkbox" name="att_require_trusted_device" id="a3" {% if s.att_require_trusted_device %}checked{% endif %}><label for="a3"><strong>Require trusted device</strong><span>Start Day must come from a device you enrolled for that person under <a class="link" href="{% url 'attendance_devices' %}">Attendance Devices</a>.</span></label></div>
+        <div class="field-group"><label>Flag repeated failed Start attempts after</label><input type="number" name="att_repeat_threshold" value="{{ s.att_repeat_threshold }}" min="2" max="50"><div class="help-text">Attempts per day before a "Repeated Attempt" event is recorded for review.</div></div>
+        <button class="btn-primary btn-inline" style="margin-top:16px;">Save</button></form>
+
     {% elif section == "data" %}
       <h2 style="margin-top:0;">Data Management</h2>
       <dl class="kv-grid"><div><dt>Leads</dt><dd>{{ n_leads }}</dd></div><div><dt>Contacts</dt><dd>{{ n_contacts }}</dd></div>

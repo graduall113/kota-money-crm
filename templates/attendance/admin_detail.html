@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}{{ staff_name }} · Attendance · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header sa-header">
+  <div>
+    <h1>{{ staff_name }} — {{ rec.work_date|date:"d/m/Y" }}</h1>
+    <p><a class="link" href="{% url 'staff_attendance' %}?date={{ rec.work_date|date:'d/m/Y' }}">← Staff Attendance</a></p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Attendance</h2><span class="badge {{ row.badge }}">{{ row.status_label }}</span></div>
+  <dl class="kv-grid" style="padding:18px 22px;">
+    <div><dt>Staff</dt><dd>{{ staff_name }}<div class="muted">{{ rec.user.username }}{% if staff_code %} · {{ staff_code }}{% endif %}</div></dd></div>
+    <div><dt>Date</dt><dd>{{ rec.work_date|date:"d/m/Y" }}</dd></div>
+    <div><dt>Status</dt><dd>{{ rec.get_attendance_status_display }}</dd></div>
+    <div><dt>Start</dt><dd>{{ row.start_label }}</dd></div>
+    <div><dt>End</dt><dd>{{ row.end_label|default:"— (still working)" }}</dd></div>
+    <div><dt>Duration</dt><dd>{{ row.worked_label }}{% if not rec.end_time %} <span class="muted">so far</span>{% endif %}</dd></div>
+    <div><dt>Auto ended</dt><dd>{% if rec.auto_ended %}<span class="badge warn">Yes — closed at the official end of day</span>{% else %}No{% endif %}</dd></div>
+    <div><dt>Start verification</dt><dd>{{ rec.get_start_verification_display }}{% if rec.override_reason %}<div class="muted">{{ rec.override_reason }}{% if rec.override_by %} — {{ rec.override_by.get_full_name|default:rec.override_by.username }}{% endif %}</div>{% endif %}</dd></div>
+  </dl>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Verification evidence</h2></div>
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th></th><th>Location check</th><th>GPS accuracy</th><th>Distance from office</th><th>IP</th><th>Device</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Start</th><td>{{ start_verdict }}</td>
+        <td>{% if rec.start_accuracy is not None %}±{{ rec.start_accuracy|floatformat:0 }} m{% else %}—{% endif %}</td>
+        <td>{% if rec.start_distance_from_office is not None %}{{ rec.start_distance_from_office|floatformat:0 }} m{% else %}—{% endif %}</td>
+        <td class="nowrap">{{ rec.start_ip|default:"—" }}</td><td>{% if rec.start_device %}{{ rec.start_device.label|default:"Registered device" }}{% else %}—{% endif %}</td></tr>
+      <tr><th scope="row">End</th><td>{% if rec.end_time %}{{ end_verdict }}{% else %}—{% endif %}</td>
+        <td>{% if rec.end_accuracy is not None %}±{{ rec.end_accuracy|floatformat:0 }} m{% else %}—{% endif %}</td>
+        <td>{% if rec.end_distance_from_office is not None %}{{ rec.end_distance_from_office|floatformat:0 }} m{% else %}—{% endif %}</td>
+        <td class="nowrap">{{ rec.end_ip|default:"—" }}</td><td>{% if rec.end_device %}{{ rec.end_device.label|default:"Registered device" }}{% else %}—{% endif %}</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted" style="padding:0 22px 14px;">Judged against the current geofence settings. Raw coordinates are never shown.</p>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Anomalies{% if anomaly_count %} ({{ anomaly_count }}){% endif %}</h2></div>
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>When</th><th>Action</th><th>Event</th><th>Details</th><th>Review</th></tr></thead>
+    <tbody>
+    {% for e in events %}
+      <tr>
+        <td class="nowrap">{{ e.created_at|date:"d/m/Y — H:i" }}</td>
+        <td>{{ e.get_action_display }}<div class="muted">{{ e.get_outcome_display }}</div></td>
+        <td><span class="badge {% if e.outcome == 'rejected' %}bad{% elif e.outcome == 'flagged' %}warn{% endif %}">{{ e.get_event_type_display }}</span><div class="muted">{{ e.message }}</div></td>
+        <td class="muted">{% if e.distance_from_office is not None %}Distance: {{ e.distance_from_office|floatformat:0 }} m<br>{% endif %}{% if e.accuracy is not None %}Accuracy: ±{{ e.accuracy|floatformat:0 }} m<br>{% endif %}{% if e.ip %}IP: {{ e.ip }}{% endif %}</td>
+        <td>{{ e.get_review_status_display }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5" class="muted">No anomalies recorded for this day.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Correct this record</h2></div>
+  <form method="post" action="{% url 'staff_attendance_correct' rec.pk %}" class="sa-correct">
+    {% csrf_token %}
+    <div class="sa-correct-grid">
+      <div><label for="c-start">Start time</label><input id="c-start" type="time" name="start_time" value="{{ started_hhmm }}"></div>
+      <div><label for="c-end">End time</label><input id="c-end" type="time" name="end_time" value="{{ ended_hhmm }}"></div>
+      {% if rec.end_time %}
+      <div><label for="c-status">Status</label>
+        <select id="c-status" name="status">
+          {% for k, v in correctable_statuses %}<option value="{{ k }}" {% if rec.attendance_status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select></div>
+      {% endif %}
+    </div>
+    <label for="c-reason">Reason (required)</label>
+    <textarea id="c-reason" name="reason" required minlength="{{ min_reason }}" maxlength="500" rows="2" placeholder="Why is this being corrected? e.g. forgot to press End Day; confirmed with the branch manager"></textarea>
+    <p class="muted">Times are on {{ rec.work_date|date:"d/m/Y" }} (office time). Status recalculates from the times unless you choose a different one.{% if not rec.end_time %} Setting an end time closes this day.{% endif %} Every change is saved with your name, the old and new values, and this reason.</p>
+    <button class="btn-primary btn-sm" type="submit">Save correction</button>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <div class="panel-header"><h2>Audit history</h2></div>
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>When</th><th>Admin</th><th>Staff</th><th>Date</th><th>Field</th><th>Old</th><th>New</th><th>Reason</th></tr></thead>
+    <tbody>
+    {% for c in corrections %}
+      <tr>
+        <td class="nowrap">{{ c.created_at|date:"d/m/Y — H:i" }}</td><td>{{ c.admin_name|default:"—" }}</td><td>{{ c.staff_name }}</td>
+        <td class="nowrap">{{ c.work_date|date:"d/m/Y" }}</td><td>{{ c.get_field_display }}</td><td>{{ c.old_value|default:"—" }}</td><td>{{ c.new_value|default:"—" }}</td><td>{{ c.reason }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="8" class="muted">No corrections have been made to this record.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

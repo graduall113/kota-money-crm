@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Staff Attendance · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header sa-header">
+  <div>
+    <h1>Staff Attendance</h1>
+    <p>Today, {{ summary.date|date:"l, d/m/Y" }} — every staff member's Start Day / End Day at a glance. Admins only.</p>
+  </div>
+  <a class="btn-secondary btn-sm" href="{% url 'staff_attendance_export' %}?{{ export_qs }}" style="text-decoration:none;">Export CSV</a>
+  <a class="btn-secondary btn-sm" href="{% url 'staff_attendance_export' %}?{{ export_qs }}{% if export_qs %}&{% endif %}format=xlsx" style="text-decoration:none;">Export Excel</a>
+</div>
+
+{# ---- 1. Today cards (always "today", whatever the table filters below are) ---- #}
+{% with d=summary.date|date:"d/m/Y" %}
+<div class="sa-cards">
+  <a class="stat-card sa-card" href="{% url 'staff_attendance' %}"><div class="stat-label">Total Staff</div><div class="stat-value">{{ summary.total }}</div></a>
+  <a class="stat-card sa-card" href="{% url 'staff_attendance' %}"><div class="stat-label">Started</div><div class="stat-value">{{ summary.started }}</div></a>
+  <a class="stat-card sa-card" href="?date={{ d }}&status=not_started"><div class="stat-label">Not Started</div><div class="stat-value">{{ summary.not_started }}</div></a>
+  <a class="stat-card sa-card" href="?date={{ d }}&status=working"><div class="stat-label">Currently Working</div><div class="stat-value">{{ summary.working }}</div></a>
+  <a class="stat-card sa-card" href="?date={{ d }}&status=ended"><div class="stat-label">Ended</div><div class="stat-value">{{ summary.ended }}</div></a>
+  <a class="stat-card sa-card" href="?date={{ d }}&status=full_day"><div class="stat-label">Full Day</div><div class="stat-value">{{ summary.full_day }}</div></a>
+  <a class="stat-card sa-card" href="?date={{ d }}&status=half_day"><div class="stat-label">Half Day</div><div class="stat-value">{{ summary.half_day }}</div></a>
+  <a class="stat-card sa-card" href="?date={{ d }}&status=auto_ended"><div class="stat-label">Auto Ended</div><div class="stat-value">{{ summary.auto_ended }}</div></a>
+  <a class="stat-card sa-card {% if summary.anomalies %}sa-card-warn{% endif %}" href="?date={{ d }}&anomaly=yes"><div class="stat-label">Verification Anomalies</div><div class="stat-value">{{ summary.anomalies }}</div></a>
+</div>
+{% endwith %}
+
+{# ---- 3 + 4. Filters and search (all server-side, GET) ---- #}
+<div class="panel">
+  <form method="get" class="filter-grid" role="search">
+    <div><label for="f-date">Date</label><input id="f-date" type="text" name="date" value="{{ f.date|date:'d/m/Y' }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    <div><label for="f-date-to">To (optional range)</label><input id="f-date-to" type="text" name="date_to" value="{% if f.date_to %}{{ f.date_to|date:'d/m/Y' }}{% endif %}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    <div><label for="f-staff">Staff</label>
+      <select id="f-staff" name="staff"><option value="">All staff</option>
+        {% for s in staff_options %}<option value="{{ s.pk }}" {% if f.staff == s.pk %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}
+      </select></div>
+    <div><label for="f-q">Search (name, username, staff code)</label><input id="f-q" type="text" name="q" value="{{ f.q }}" maxlength="100" placeholder="e.g. rahul"></div>
+    <div><label for="f-status">Status</label>
+      <select id="f-status" name="status"><option value="">All</option>
+        {% for k, v in status_choices %}<option value="{{ k }}" {% if f.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select></div>
+    <div><label for="f-ver">Verification</label>
+      <select id="f-ver" name="verification"><option value="">All</option>
+        {% for k, v in verification_choices %}<option value="{{ k }}" {% if f.verification == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select></div>
+    <div><label for="f-auto">Auto Ended</label>
+      <select id="f-auto" name="auto_ended"><option value="">All</option>
+        {% for k, v in yes_no %}<option value="{{ k }}" {% if f.auto_ended == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select></div>
+    <div><label for="f-anom">Anomaly</label>
+      <select id="f-anom" name="anomaly"><option value="">All</option>
+        {% for k, v in yes_no %}<option value="{{ k }}" {% if f.anomaly == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select></div>
+    <div class="filter-actions">
+      <button class="btn-primary btn-sm">Apply Filters</button>
+      <a href="{% url 'staff_attendance' %}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a>
+    </div>
+  </form>
+
+  {% if f.is_range and f.status == 'not_started' or f.is_range and f.status == 'absent' %}
+  <p class="muted" style="padding:12px 22px;">“Not Started” and “Absent” describe a single day. Clear the “To” date to see them.</p>
+  {% endif %}
+
+  {# ---- 2. Table ---- #}
+  <div class="table-scroll">
+    <table class="data-table sa-table">
+      <thead><tr>
+        <th>Staff</th><th>Date</th><th>Start Time</th><th>End Time</th><th>Worked Hours</th><th>Status</th>
+        <th>Verification</th><th>Device</th><th>IP</th><th>Auto Ended</th><th>Anomaly</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.staff_name }}<div class="muted">{{ r.user.username }}{% if r.staff_code %} · {{ r.staff_code }}{% endif %}</div></td>
+          <td class="nowrap">{{ r.work_date|date:"d/m/Y" }}</td>
+          <td class="nowrap">{{ r.start_label|default:"—" }}</td>
+          <td class="nowrap">{{ r.end_label|default:"—" }}</td>
+          <td class="nowrap">{{ r.worked_label|default:"—" }}{% if r.rec and not r.rec.end_time %} <span class="muted">so far</span>{% endif %}</td>
+          <td><span class="badge {{ r.badge }}">{{ r.status_label }}</span></td>
+          <td>{% if r.rec %}<span class="badge {% if r.rec.start_verification == 'verified' %}ok{% elif r.rec.start_verification == 'admin_override' %}warn{% endif %}">{{ r.verification_label }}</span>{% else %}—{% endif %}</td>
+          <td>{{ r.device_label|default:"—" }}</td>
+          <td class="nowrap">{{ r.ip|default:"—" }}</td>
+          <td>{% if r.auto_ended %}<span class="badge warn">Yes</span>{% elif r.rec %}No{% else %}—{% endif %}</td>
+          <td>{% if r.has_anomaly %}<span class="badge bad" title="{{ r.anomaly_types|join:', ' }}">{{ r.anomaly_types|length }} flagged</span><div class="muted">{{ r.anomaly_types.0 }}{% if r.anomaly_types|length > 1 %} +{{ r.anomaly_types|length|add:"-1" }}{% endif %}</div>{% else %}—{% endif %}</td>
+          <td class="nowrap">{% if r.rec %}<a class="link" href="{% url 'staff_attendance_detail' r.rec.pk %}">View</a>{% else %}<span class="muted">No record</span>{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="12" class="muted">No attendance matches these filters.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "partials/pagination.html" %}
+</div>
+{% endblock %}

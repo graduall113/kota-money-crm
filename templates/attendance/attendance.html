@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Attendance · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Attendance</h1>
+  <p>Working hours {{ attendance.work_start_label }} – {{ attendance.work_end_label }} (Asia/Kolkata). Times are recorded by the server.</p>
+</div>
+
+<div class="panel att-panel">
+  {% if attendance.state == 'not_started' %}
+    <div class="att-hero">
+      <div class="att-hero-title">Ready to begin?</div>
+      <p class="muted">Start your day to unlock the CRM. You can start once per day.</p>
+      <form method="post" action="{% url 'attendance_start' %}" class="js-att-form">
+        {% csrf_token %}
+        <button type="submit" class="att-btn att-btn-start att-btn-lg" {% if not attendance.can_start %}disabled{% endif %}>Start Day</button>
+      </form>
+      {% if not attendance.can_start %}<p class="muted">Working hours are over for today.</p>{% endif %}
+    </div>
+  {% elif attendance.state == 'active' %}
+    <div class="att-hero">
+      <div class="att-badge att-badge-working att-badge-lg"><span class="att-dot"></span>Working</div>
+      <dl class="att-facts">
+        <div><dt>Started</dt><dd>{{ attendance.started_label }}</dd></div>
+        <div><dt>Worked</dt><dd>{{ attendance.worked_label }}</dd></div>
+        <div><dt>Auto-ends</dt><dd>{{ attendance.work_end_label }}</dd></div>
+      </dl>
+      <form method="post" action="{% url 'attendance_end' %}" class="js-att-form">
+        {% csrf_token %}
+        <button type="submit" class="att-btn att-btn-end att-btn-lg">End Day</button>
+      </form>
+    </div>
+  {% else %}
+    <div class="att-hero">
+      <div class="att-badge att-badge-ended att-badge-lg">Day Ended</div>
+      <dl class="att-facts">
+        <div><dt>Started</dt><dd>{{ attendance.started_label }}</dd></div>
+        <div><dt>Ended</dt><dd>{{ attendance.ended_label }}{% if attendance.auto_ended %} <span class="muted">(auto)</span>{% endif %}</dd></div>
+        <div><dt>Duration</dt><dd>{{ attendance.duration_label }}</dd></div>
+        <div><dt>Status</dt><dd>{{ attendance.status_label }}</dd></div>
+      </dl>
+      <p class="muted">CRM access is locked until you start your day tomorrow.</p>
+    </div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Verification</h2></div>
+  <div class="panel-body">
+    {% if verify_geofence or verify_ip or verify_device %}<p class="muted" style="margin-top:0;">Start Day is checked on the server{% if verify_geofence %} — <strong>allow precise location</strong> when your browser asks{% endif %}{% if verify_ip %} and connect to the <strong>office network</strong>{% endif %}. If a reading fails you can simply try again.</p>{% endif %}
+    {% if verify_device %}
+      {% if device_trusted %}
+        <p><span class="badge ok">This device is registered</span></p>
+      {% else %}
+        <p><span class="badge warn">This device isn't registered</span> — enter the enrolment code an admin gave you.</p>
+      {% endif %}
+    {% endif %}
+    <form method="post" action="{% url 'attendance_device_enroll' %}" class="inline-form">
+      {% csrf_token %}
+      <label>Enrolment code <input type="text" name="code" maxlength="12" autocomplete="off" placeholder="8-character code" style="text-transform:uppercase;"></label>
+      <button class="btn-secondary btn-sm">Register this device</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Recent days</h2></div>
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Started</th><th>Ended</th><th>Duration</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for r in history %}
+        <tr><td>{{ r.date|date:"d/m/Y" }}</td><td>{{ r.started }}</td><td>{{ r.ended }}{% if r.auto_ended %} <span class="muted">(auto)</span>{% endif %}</td><td>{{ r.duration }}</td><td>{{ r.status }}{% if r.override %} <span class="muted">(admin start)</span>{% endif %}</td></tr>
+        {% empty %}
+        <tr><td colspan="5" class="muted">No attendance recorded yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

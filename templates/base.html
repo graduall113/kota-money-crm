@@ -64,9 +64,21 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2.5 19c0-3.3 2.9-5.6 6.5-5.6s6.5 2.3 6.5 5.6"/><circle cx="17.5" cy="8.5" r="2.3"/><path d="M16 13.6c2.7.4 4.5 2.3 4.5 5"/></svg>
         Staff
       </a>
+      <a href="{% url 'staff_attendance' %}" class="nav-link {% if active_page == 'staff_attendance' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9 15l2 2 4-4"/></svg>
+        Staff Attendance
+      </a>
       <a href="{% url 'calling_devices' %}" class="nav-link {% if active_page == 'calling_devices' %}is-active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.2h2"/></svg>
         Calling Devices
+      </a>
+      <a href="{% url 'attendance_events' %}" class="nav-link {% if active_page == 'attendance_events' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        Attendance Review
+      </a>
+      <a href="{% url 'attendance_devices' %}" class="nav-link {% if active_page == 'attendance_devices' %}is-active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+        Attendance Devices
       </a>
       <a href="{% url 'calling_privileged_numbers' %}" class="nav-link {% if active_page == 'calling_privileged' %}is-active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 4 6v6c0 5 3.4 8 8 9.5 4.6-1.5 8-4.5 8-9.5V6l-8-3.5Z"/></svg>
@@ -96,11 +108,38 @@
       </a>
     </nav>
 
-    {# Native Django Lead form: saves to the CRM DB, then pushes to n8n. #}
+    {% if attendance %}
+    {# Staff: server-driven attendance control (replaces the old quick "Add New Lead" button). #}
+    <div class="att-widget att-{{ attendance.state }}" id="attWidget">
+      {% if attendance.state == 'not_started' %}
+        <form method="post" action="{% url 'attendance_start' %}" class="js-att-form">
+          {% csrf_token %}
+          <button type="submit" class="att-btn att-btn-start" {% if not attendance.can_start %}disabled{% endif %}>Start Day</button>
+        </form>
+        <div class="att-meta">{% if attendance.can_start %}Hours {{ attendance.work_start_label }} – {{ attendance.work_end_label }}{% else %}Working hours are over for today{% endif %}</div>
+      {% elif attendance.state == 'active' %}
+        <div class="att-badge att-badge-working"><span class="att-dot"></span>Working</div>
+        <div class="att-meta">Started: {{ attendance.started_label }}</div>
+        <div class="att-meta">Worked: <span id="attWorked" data-elapsed="{{ attendance.elapsed_seconds }}" data-remaining="{{ attendance.seconds_to_auto_end }}">{{ attendance.worked_label }}</span></div>
+        <form method="post" action="{% url 'attendance_end' %}" class="js-att-form">
+          {% csrf_token %}
+          <button type="submit" class="att-btn att-btn-end">End Day</button>
+        </form>
+      {% else %}
+        <div class="att-badge att-badge-ended">Day Ended</div>
+        <div class="att-meta">Started: {{ attendance.started_label }}</div>
+        <div class="att-meta">Ended: {{ attendance.ended_label }}</div>
+        <div class="att-meta">Duration: {{ attendance.duration_label }}</div>
+        <div class="att-meta">Status: {{ attendance.status_label }}</div>
+      {% endif %}
+    </div>
+    {% else %}
+    {# Admins aren't subject to attendance, so they keep the quick-add shortcut. #}
     <a href="{% url 'lead_create' %}" class="nav-add-lead {% if active_page == 'add_lead' %}is-active{% endif %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       Add New Lead
     </a>
+    {% endif %}
 
     <div class="sidebar-footer">Kota Money &middot; internal CRM</div>
   </aside>
@@ -165,6 +204,59 @@
     });
   }
 </script>
+{% if attendance %}
+<script>
+  // Double-click guard (the server also rejects duplicates) + best-effort location capture.
+  // The browser only *measures* latitude/longitude/accuracy; the server calculates the distance,
+  // reads the IP and the clock, and makes every decision. If location is denied or unavailable
+  // the form is still submitted so the server can answer with a clear, retryable message.
+  const attSetField = (form, name, value) => {
+    let el = form.querySelector('input[name="' + name + '"]');
+    if (!el) { el = document.createElement('input'); el.type = 'hidden'; el.name = name; form.appendChild(el); }
+    el.value = value;
+  };
+  document.querySelectorAll('.js-att-form').forEach((f) => {
+    f.addEventListener('submit', (e) => {
+      if (f.dataset.busy) { e.preventDefault(); return; }
+      f.dataset.busy = '1';
+      const buttons = f.querySelectorAll('button');
+      const original = Array.from(buttons).map((b) => b.textContent);
+      buttons.forEach((b) => { b.disabled = true; });
+      if (!('geolocation' in navigator)) { attSetField(f, 'geo_error', 'unsupported'); return; }
+      e.preventDefault();
+      buttons.forEach((b) => { b.textContent = 'Getting your location…'; });
+      const isStart = (f.getAttribute('action') || '').indexOf('/start/') !== -1;
+      let sent = false;
+      const go = () => { if (!sent) { sent = true; f.submit(); } };
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          attSetField(f, 'latitude', pos.coords.latitude);
+          attSetField(f, 'longitude', pos.coords.longitude);
+          attSetField(f, 'accuracy', pos.coords.accuracy);
+          go();
+        },
+        (err) => {
+          attSetField(f, 'geo_error', err.code === 1 ? 'denied' : (err.code === 3 ? 'timeout' : 'unavailable'));
+          go();
+        },
+        { enableHighAccuracy: true, timeout: isStart ? 20000 : 8000, maximumAge: 0 }
+      );
+      setTimeout(() => { attSetField(f, 'geo_error', 'timeout'); go(); }, isStart ? 25000 : 12000);
+    });
+  });
+  const attWorked = document.getElementById('attWorked');
+  if (attWorked) {
+    const t0 = performance.now();
+    const base = +attWorked.dataset.elapsed, remain = +attWorked.dataset.remaining;
+    const pad = (n) => String(n).padStart(2, '0');
+    setInterval(() => {
+      const d = (performance.now() - t0) / 1000, s = base + d;
+      attWorked.textContent = pad(Math.floor(s / 3600)) + 'h ' + pad(Math.floor((s % 3600) / 60)) + 'm';
+      if (d >= remain + 2) location.reload();  // 19:00 passed: server auto-ends + locks
+    }, 15000);
+  }
+</script>
+{% endif %}
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

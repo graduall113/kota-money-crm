@@ -5,17 +5,18 @@ from django.db import transaction
 from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404, redirect, render
 
-from . import analytics, filters, services
+from . import analytics, attendance_verify, filters, services
 from .decorators import active_account_required, admin_required
 from .forms import DocumentTypeForm
-from .models import AuditLog, Contact, DocumentHistory, DocumentType, ImportBatch, Lead, LeadDocument, Setting, user_label
+from .models import AttendanceEvent, AuditLog, Contact, DocumentHistory, DocumentType, ImportBatch, Lead, LeadDocument, Setting, user_label
 from .settings_store import (
     BOOL_KEYS, DEFAULTS, get_bool, get_int, get_n8n_webhook_url, get_setting, set_setting, validate_webhook_url,
 )
 
 SETTINGS_SECTIONS = [
     ("account", "Account"), ("leads", "Leads & Assignment"), ("imports", "Import"), ("n8n", "n8n / Automation"),
-    ("documents", "Document Checklist"), ("security", "Security"), ("data", "Data Management"),
+    ("documents", "Document Checklist"), ("security", "Security"), ("attendance", "Attendance Verification"),
+    ("data", "Data Management"),
 ]
 
 
@@ -26,7 +27,8 @@ def settings_page(request):
     if not admin:
         section = "account"
     if request.method == "POST" and admin:
-        handler = {"leads": _save_leads, "imports": _save_imports, "n8n": _save_n8n, "security": _save_security}.get(section)
+        handler = {"leads": _save_leads, "imports": _save_imports, "n8n": _save_n8n, "security": _save_security,
+                   "attendance": _save_attendance}.get(section)
         if handler:
             handler(request)
         return redirect(f"{request.path}?section={section}")
@@ -36,6 +38,10 @@ def settings_page(request):
         "s": {k: (get_bool(k) if k in BOOL_KEYS else get_setting(k)) for k in DEFAULTS},
         "n8n_effective": get_n8n_webhook_url(),
     }
+    if section == "attendance" and admin:
+        cfg = attendance_verify.load_config()
+        ctx.update({"att_problems": cfg.problems(), "att_detected_ip": attendance_verify.client_ip(request) or "unknown",
+                    "att_open_events": AttendanceEvent.objects.filter(review_status="open").count()})
     if section == "data" and admin:
         ctx.update({"n_leads": Lead.objects.count(), "n_contacts": Contact.objects.filter(is_deleted=False).count(),
                     "n_batches": ImportBatch.objects.count(), "n_audit": AuditLog.objects.count()})
@@ -90,6 +96,62 @@ def _save_n8n(request):
     set_setting("n8n_enabled", after["n8n_enabled"], request.user)
     _changed(request, before, after, "n8n")
     messages.success(request, "n8n settings saved." if url else "Saved — using the built-in default webhook URL.")
+
+
+ATT_KEYS = (
+    "att_office_lat", "att_office_lng", "att_geofence_radius_m", "att_max_accuracy_m", "att_office_ips",
+    "att_require_geofence", "att_require_office_ip", "att_require_trusted_device", "att_repeat_threshold",
+)
+
+
+def _save_attendance(request):
+    """Validates everything server-side; nothing is saved unless the whole form is valid."""
+    post = request.POST
+    lat_raw, lng_raw = post.get("att_office_lat", "").strip(), post.get("att_office_lng", "").strip()
+    lat = attendance_verify._to_float(lat_raw, -90, 90) if lat_raw else None
+    lng = attendance_verify._to_float(lng_raw, -180, 180) if lng_raw else None
+    ips_text = post.get("att_office_ips", "").strip()
+    nets, bad = attendance_verify.parse_allowlist(ips_text)
+    req_geo = post.get("att_require_geofence") == "on"
+    req_ip = post.get("att_require_office_ip") == "on"
+    req_dev = post.get("att_require_trusted_device") == "on"
+    errors = []
+    if bool(lat_raw) != bool(lng_raw) or (lat_raw and (lat is None or lng is None)):
+        errors.append("Enter a valid office latitude (-90 to 90) and longitude (-180 to 180), or leave both blank.")
+    if req_geo and (lat is None or lng is None):
+        errors.append("Set the office latitude and longitude before requiring the geofence.")
+    try:
+        radius = int(post.get("att_geofence_radius_m", ""))
+        accuracy = int(post.get("att_max_accuracy_m", ""))
+        repeat = int(post.get("att_repeat_threshold", ""))
+    except ValueError:
+        radius = accuracy = repeat = None
+        errors.append("Radius, accuracy threshold and repeat threshold must be whole numbers.")
+    if radius is not None and not (30 <= radius <= 2000):
+        errors.append("Geofence radius must be between 30 and 2000 metres.")
+    if accuracy is not None and not (10 <= accuracy <= 1000):
+        errors.append("GPS accuracy threshold must be between 10 and 1000 metres.")
+    if repeat is not None and not (2 <= repeat <= 50):
+        errors.append("Repeated-attempt threshold must be between 2 and 50.")
+    if bad:
+        errors.append("These IP allow-list entries are invalid or too broad: " + ", ".join(bad[:5]) + ".")
+    if req_ip and not nets:
+        errors.append("Add at least one office IP or CIDR before requiring the office IP.")
+    if errors:
+        for e in errors:
+            messages.error(request, e)
+        return
+    after = {
+        "att_office_lat": "" if lat is None else f"{lat:.6f}", "att_office_lng": "" if lng is None else f"{lng:.6f}",
+        "att_geofence_radius_m": radius, "att_max_accuracy_m": accuracy,
+        "att_office_ips": "\n".join(str(n) for n in nets), "att_repeat_threshold": repeat,
+        "att_require_geofence": req_geo, "att_require_office_ip": req_ip, "att_require_trusted_device": req_dev,
+    }
+    before = {k: (get_bool(k) if k in BOOL_KEYS else get_setting(k)) for k in ATT_KEYS}
+    for k, v in after.items():
+        set_setting(k, v, request.user)
+    _changed(request, before, after, "Attendance verification")
+    messages.success(request, "Attendance verification settings saved.")
 
 
 def _save_security(request):

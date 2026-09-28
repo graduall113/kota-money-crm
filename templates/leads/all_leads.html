@@ -6,6 +6,7 @@
     <h1>{{ title }}</h1>
     <p>{{ subtitle }} <span class="muted">{{ total_count }} record{{ total_count|pluralize }}.</span></p>
   </div>
+  <a class="btn-primary" href="{% url 'lead_create' %}">+ Add New Lead</a>
 </div>
 <div class="panel">
   {% include "partials/lead_filters.html" %}

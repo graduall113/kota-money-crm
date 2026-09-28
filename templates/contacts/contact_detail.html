@@ -8,7 +8,7 @@
   </div>
   <div class="page-actions">
     {% if can_edit %}<a class="btn-secondary" href="{% url 'contact_edit' contact.pk %}">Edit</a>{% endif %}
-    {% if can_edit and contact.status != 'converted' %}<a class="btn-primary" href="{% url 'lead_create' %}?from_contact={{ contact.pk }}">Convert to lead</a>{% endif %}
+    {% if can_edit and contact.status != 'converted' and not leads %}<a class="btn-primary" href="{% url 'lead_create' %}?from_contact={{ contact.pk }}">Convert to lead</a>{% endif %}
     {% if can_delete %}
     <form method="post" action="{% url 'contact_delete' contact.pk %}" class="js-confirm"
           data-confirm-title="Delete contact?"

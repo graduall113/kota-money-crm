@@ -1064,3 +1064,102 @@ a {
   margin-top: auto;
   padding-top: 8px;
 }
+/* Device cards carry two actions side by side (Revoke/Re-enable + Delete).
+   Each form is a flex item that can shrink and wrap; on phones the two
+   buttons share the row equally, so nothing overlaps or overflows. */
+.device-card .dc-actions form { margin: 0; min-width: 0; }
+@media (max-width: 480px) {
+  .device-card .dc-actions form { flex: 1 1 0; }
+  .device-card .dc-actions form button { width: 100%; }
+}
+
+/* =========================================================
+   STAFF ATTENDANCE (sidebar control + attendance page)
+   ========================================================= */
+.att-widget {
+  margin: 4px 14px 20px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: var(--ink-soft);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.att-widget form { margin: 0; }
+.att-meta { font-size: 13px; color: rgba(255, 255, 255, 0.72); overflow-wrap: anywhere; }
+.att-btn {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--radius-md);
+  font-size: 14px; font-weight: 600; line-height: 1.2;
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+}
+.att-btn:active:not(:disabled) { transform: scale(0.99); }
+.att-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.att-btn-start { background: var(--accent); color: #fff; }
+.att-btn-start:hover:not(:disabled) { background: var(--accent-hover); }
+.att-btn-end { background: var(--gold); color: var(--ink); margin-top: 4px; }
+.att-btn-end:hover:not(:disabled) { background: #d6ab44; }
+.att-btn-lg { width: auto; min-width: 220px; padding: 15px 28px; font-size: 15px; }
+.att-badge {
+  display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
+  padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.att-badge-working { background: rgba(31, 111, 84, 0.25); color: #9be0c2; }
+.att-badge-ended { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.8); }
+.att-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; animation: att-pulse 1.8s ease-in-out infinite; }
+@keyframes att-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .att-dot { animation: none; } }
+
+.att-panel { padding: 28px; }
+.att-hero { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.att-hero-title { font-family: "Sora", sans-serif; font-size: 22px; font-weight: 600; color: var(--text); }
+.att-panel .att-badge-working { background: var(--accent-soft); color: var(--accent); }
+.att-panel .att-badge-ended { background: var(--gold-soft); color: #8a6a12; }
+.att-badge-lg { font-size: 13px; padding: 7px 14px; }
+.att-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 28px; margin: 0; width: 100%; }
+.att-facts dt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.att-facts dd { margin: 4px 0 0; font-size: 20px; font-weight: 600; color: var(--text); }
+
+@media (max-width: 900px) {
+  .att-widget { margin: 4px 12px 16px; }
+  .att-btn { min-height: 46px; } /* comfortable tap target inside the mobile drawer */
+}
+@media (max-width: 560px) {
+  .att-panel { padding: 20px 16px; }
+  .att-btn-lg { width: 100%; min-width: 0; }
+  .att-facts { grid-template-columns: 1fr 1fr; gap: 14px; }
+  .att-facts dd { font-size: 17px; }
+}
+
+/* =========================================================
+   STAFF ATTENDANCE ADMIN (Feature 6) - only new classes
+   ========================================================= */
+.sa-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sa-header > div:first-child { flex: 1 1 260px; min-width: 0; }
+.sa-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 22px; }
+.sa-card { display: block; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.sa-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-raised); }
+.sa-card-warn { border-color: #e9c7bd; background: #fdf3f0; }
+.sa-table th, .sa-table td { vertical-align: top; }
+.sa-correct { padding: 18px 22px; }
+.sa-correct label { display: block; font-size: 12px; color: var(--text-muted); margin: 10px 0 4px; }
+.sa-correct textarea { width: 100%; }
+.sa-correct-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) {
+  .sa-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .sa-correct-grid { grid-template-columns: 1fr 1fr; }
+  .sa-table th:first-child, .sa-table td:first-child { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+}
+@media (max-width: 560px) {
+  .sa-correct-grid { grid-template-columns: 1fr; }
+  .sa-header .btn-secondary { flex: 1 1 calc(50% - 6px); text-align: center; }
+}

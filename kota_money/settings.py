@@ -40,6 +40,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Must stay AFTER Authentication + Messages: locks non-admin staff out of
+    # every CRM page unless they have an ACTIVE attendance record today.
+    "crm.middleware.AttendanceRequiredMiddleware",
 ]
 
 ROOT_URLCONF = "kota_money.urls"
@@ -58,6 +61,8 @@ TEMPLATES = [
                 # Makes N8N_FORM_URL (and other settings below) available
                 # inside every template without passing it manually.
                 "kota_money.context_processors.site_settings",
+                # Drives the sidebar Start Day / Working / Day Ended control.
+                "crm.context_processors.attendance_widget",
             ],
         },
     },
@@ -191,3 +196,31 @@ CRM_JOBS_INLINE = False
 
 # Uploaded files above this size are streamed to a temp file by Django.
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+
+# -----------------------------------------------------------------
+# STAFF ATTENDANCE (Start Day / End Day)
+# -----------------------------------------------------------------
+# Business timezone for work_date and the 10:00-19:00 window. Explicit (not
+# just TIME_ZONE) so attendance can never silently shift if TIME_ZONE changes.
+ATTENDANCE_TIMEZONE = os.environ.get("ATTENDANCE_TIMEZONE", "Asia/Kolkata")
+ATTENDANCE_WORK_START = os.environ.get("ATTENDANCE_WORK_START", "10:00")  # HH:MM, business tz
+ATTENDANCE_WORK_END = os.environ.get("ATTENDANCE_WORK_END", "19:00")      # auto-end moment
+# Worked duration (actual, start -> end) needed for each status:
+#   >= full-day minimum            -> Full Day
+#   >= half-day minimum            -> Half Day
+#   below the half-day minimum     -> Short Day
+# 480 = 8h: a late 11:00 start that runs to 19:00 (8h) is still a Full Day,
+# while 10:00 -> 16:00 (6h) is a Half Day.
+ATTENDANCE_FULL_DAY_MIN_MINUTES = int(os.environ.get("ATTENDANCE_FULL_DAY_MIN_MINUTES", "480"))
+ATTENDANCE_HALF_DAY_MIN_MINUTES = int(os.environ.get("ATTENDANCE_HALF_DAY_MIN_MINUTES", "240"))
+# Master switch. Leave True in production; set ATTENDANCE_ENFORCED=0 only as an
+# emergency off-switch (staff are then never locked out; nothing else changes).
+ATTENDANCE_ENFORCED = os.environ.get("ATTENDANCE_ENFORCED", "1").lower() in ("1", "true", "yes", "on")
+
+# How many reverse proxies sit in front of Django and append to X-Forwarded-For
+# (Render's load balancer = 1; add 1 if you also put Cloudflare in front).
+# 0 = ignore X-Forwarded-For entirely and use the socket address. The client IP
+# is taken from that many hops from the RIGHT, so a staff member can't spoof it
+# by sending their own X-Forwarded-For header. Verify on the Attendance
+# Verification settings page: it shows the IP the server currently sees for you.
+ATTENDANCE_TRUSTED_PROXY_COUNT = int(os.environ.get("ATTENDANCE_TRUSTED_PROXY_COUNT", "1"))

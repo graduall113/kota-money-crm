@@ -93,6 +93,21 @@ Set the webhook URL via environment variable before deploying:
 
 If unset, it falls back to that same production URL by default.
 
+## Lead ID
+
+Every Lead has a permanent, human-readable ID such as `KM-1058`
+(`Lead.display_id`). It is derived from the database primary key, so it is
+assigned by the database on INSERT, is unique even under concurrent creation,
+never changes and is never reused. It is read-only: not a form field, not
+accepted by the inbound API, and not editable in the admin. Add New Lead shows
+"Generated automatically when you save" (no fake ID); the ID appears in the
+success message and on the lead page. Search accepts `KM-1058` or `1058`.
+
+n8n receives it as `lead_reference_id` (the numeric `lead_id` is unchanged) plus
+an `Idempotency-Key: lead-KM-1058` header. To have it land in a Google Sheet
+`Lead ID` column without duplicate rows on retry, follow
+`docs/n8n_lead_id_setup.md`.
+
 ## Password reset
 
 Uses Django's built-in password-reset flow. In development, reset emails
@@ -104,3 +119,11 @@ real SMTP before deploying.
 - Set `DEBUG = False` and a real `SECRET_KEY` in `kota_money/settings.py`.
 - Set `ALLOWED_HOSTS` to your actual domain.
 - Point `EMAIL_BACKEND` at a real mail provider for password resets.
+
+
+## Attendance verification
+Office geofence, GPS accuracy, office IP and trusted-device checks for Start Day, with an admin review trail and override. Off until configured under Settings → Attendance Verification. See `docs/attendance_setup.md`.
+
+## Staff Attendance admin dashboard
+
+See [docs/staff_attendance.md](docs/staff_attendance.md). Apply the new migration with `python manage.py migrate`.

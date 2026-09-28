@@ -5,13 +5,20 @@ CRM click; every number comes from crm/calling_analytics.py, built off
 CallRecord rows that only crm/calling_api.py (the Android sync endpoint)
 writes.
 """
+import logging
+
 from django.contrib import messages
+from django.db import DatabaseError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from . import access, services
 from . import calling_analytics as analytics
 from .decorators import active_account_required, admin_required
-from .models import CallDevice, PrivilegedNumber
+from .models import CallDevice, PrivilegedNumber, user_label
+
+logger = logging.getLogger("crm.calling")
 
 
 @active_account_required
@@ -59,11 +66,86 @@ def device_pair_new(request):
 
 
 @admin_required
+@require_POST
 def device_toggle(request, device_id):
     device = get_object_or_404(CallDevice, pk=device_id)
     device.is_active = not device.is_active
     device.save(update_fields=["is_active"])
     messages.success(request, f"Device {'enabled' if device.is_active else 'revoked'}.")
+    return redirect("calling_devices")
+
+
+@admin_required
+@require_POST
+def device_delete(request, device_id):
+    """
+    Permanently removes ONE CallDevice pairing record — nothing else.
+
+    - POST-only (GET -> 405), CSRF-protected by Django's middleware,
+      admin-only (login + StaffProfile.role == 'admin').
+    - Works on a Paired device directly; no need to revoke first. Inside
+      the transaction the device is revoked and its token/pairing code are
+      wiped before the row is removed, so the Android app can never sync
+      again with that token.
+    - CallRecord.device is on_delete=SET_NULL, so every historical call
+      (and all analytics built from them) is kept; only the link to this
+      device record is cleared. The staff user and leads/contacts are not
+      touched (CallDevice.staff points AT the user, not the other way).
+    - Idempotent: a double-click / stale page just gets a friendly notice.
+    """
+    try:
+        with transaction.atomic():
+            # Row lock so a concurrent revoke/re-enable/delete can't interleave
+            # (a no-op on SQLite, real lock on PostgreSQL).
+            device = (
+                CallDevice.objects.select_for_update()
+                .select_related("staff").filter(pk=device_id).first()
+            )
+            if device is None:
+                messages.warning(request, "This device has already been deleted or no longer exists.")
+                return redirect("calling_devices")
+
+            staff = device.staff
+            details = {
+                "device_id": device.pk,
+                "device_label": device.label,
+                "staff_id": staff.pk,
+                "staff_name": user_label(staff),
+                "was_paired": device.is_paired,
+                "was_active": device.is_active,
+                "call_records_preserved": device.call_records.count(),
+                "deleted_by_id": request.user.pk,
+                "deleted_at": timezone.now().isoformat(),
+            }
+
+            # Invalidate credentials first (defence in depth — the row is
+            # about to vanish, but this makes the intent explicit in the DB).
+            device.is_active = False
+            device.token_hash = None
+            device.paired_at = None
+            device.pairing_code = ""
+            device.pairing_code_expires = None
+            device.save(update_fields=[
+                "is_active", "token_hash", "paired_at", "pairing_code", "pairing_code_expires",
+            ])
+
+            label = device.label or "Device"
+            device.delete()  # CallRecord.device -> SET_NULL; nothing else cascades
+
+            services.log_audit(
+                request.user, "call_device_deleted",
+                f"Calling device '{label}' (#{details['device_id']}) of {details['staff_name']} deleted",
+                details, "call_device", details["device_id"],
+            )
+    except DatabaseError:
+        logger.exception("[CALLING] Device delete failed (device=%s, admin=%s)", device_id, request.user.pk)
+        messages.error(request, "We couldn't delete this device right now. Nothing was changed — please try again.")
+        return redirect("calling_devices")
+
+    messages.success(
+        request,
+        f"Device '{label}' deleted. Call history, leads, contacts and the staff account were not affected.",
+    )
     return redirect("calling_devices")
 
 

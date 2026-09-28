@@ -1,9 +1,12 @@
+import logging
+
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -281,6 +284,14 @@ def staff_delete(request, user_id):
         )
         return redirect("staff_list")
 
+    if target.attendance_records.exists():
+        messages.error(
+            request,
+            f"{user_label(target)} has attendance history, which is kept for records — "
+            "the account stays deactivated instead (deactivation already fully blocks their access).",
+        )
+        return redirect("staff_list")
+
     name, pk = user_label(target), target.pk
     services.log_audit(request.user, "staff_deleted", f"Staff deleted: {name}", {"email": target.email}, "user", pk)
     target.delete()
@@ -471,16 +482,50 @@ def _lead_home(user):
     return "all_leads" if access.is_admin(user) else "my_leads"
 
 
+class _ContactAlreadyConverted(Exception):
+    """Raised inside the conversion transaction when another request won the race."""
+
+
+def _converted_lead_for(contact):
+    """
+    The Lead this Contact was already converted into, or None if it hasn't been.
+    A contact counts as converted when its status says so OR any Lead already
+    points at it (Lead.contact) — either one alone must block a second conversion.
+    Returns (already_converted: bool, lead_or_None).
+    """
+    lead = Lead.objects.filter(contact_id=contact.pk).order_by("-created_at", "-id").first()
+    return (contact.status == Contact.STATUS_CONVERTED or lead is not None), lead
+
+
+def _already_converted_response(request, contact):
+    """Friendly message + link to the existing Lead (when this user may see it)."""
+    _, lead = _converted_lead_for(contact)
+    visible = access.visible_leads(request.user).filter(pk=lead.pk).first() if lead else None
+    if visible:
+        messages.warning(request, f"{contact.name} was already converted to lead {visible.display_id}. "
+                                  "Opening the existing lead instead of creating a duplicate.")
+        return redirect("lead_detail", lead_id=visible.pk)
+    messages.warning(request, f"{contact.name} has already been converted to a lead, so it can't be converted again.")
+    return redirect("contact_detail", contact_id=contact.pk)
+
+
 @active_account_required
 def lead_create(request):
     """
-    The CRM's own native "Add New Lead" form.
+    The CRM's own native "Add New Lead" form — and, with ?from_contact=<id>,
+    the SAME form/template/validation used as "Convert Contact to Lead".
 
-    Flow: validate -> save to the Django DB (source of truth) -> POST the
-    saved lead to n8n's webhook so the existing Gmail / Google Sheets /
-    WhatsApp automation keeps running. If the n8n webhook is slow, down,
-    or errors out, the lead still stays saved — send_lead_to_n8n() never
-    raises, and the user just sees a "sync is pending" message.
+    Flow: validate -> (one DB transaction: claim the contact, save the lead,
+    link it, write history) -> POST the saved lead to n8n's webhook so the
+    existing Gmail / Google Sheets / WhatsApp automation keeps running. n8n is
+    called only AFTER the transaction has committed, and send_lead_to_n8n()
+    never raises, so a slow/down n8n can never roll back a saved Lead — the
+    user just sees a "sync is pending" warning.
+
+    Converting a contact is guarded on the server (not just in JS): an
+    already-converted contact is refused, and the contact row is claimed with a
+    single conditional UPDATE inside the transaction, so a double-click or two
+    simultaneous submits can only ever create ONE lead.
 
     reference_by = whoever creates it (never changes later).
     assigned_to  = creator (staff) or the staff member chosen by an admin.
@@ -491,38 +536,65 @@ def lead_create(request):
         contact = access.get_visible_contact_or_404(request.user, request.GET.get("from_contact") or request.POST.get("from_contact"))
         if not access.can_edit_contact(request.user, contact):
             raise PermissionDenied("You can't convert this contact.")
+        if _converted_lead_for(contact)[0]:
+            return _already_converted_response(request, contact)
 
     if request.method == "POST":
         form = LeadForm(request.POST, is_admin=admin)
         if form.is_valid():
-            lead = form.save(commit=False)
-            lead.created_by = request.user
-            lead.reference_by = (contact.reference_by if contact and contact.reference_by_id else request.user)
-            owner = form.cleaned_data.get("assigned_to_user") if admin else request.user
-            if admin and owner is None and contact and contact.current_assigned_to_id:
-                owner = contact.current_assigned_to
-            lead.assigned_to = owner
-            lead.original_assigned_to = owner
-            if contact:
-                lead.contact, lead.import_batch = contact, contact.import_batch
-            lead.save()
-            services.log_activity(request.user, "created", "Lead created" + (f" from contact #{contact.pk}" if contact else ""), lead=lead)
-            if owner:
-                AssignmentHistory.objects.create(
-                    lead=lead, action=AssignmentHistory.ACTION_ASSIGN, to_user=owner, to_name=user_label(owner),
-                    changed_by=request.user, changed_by_name=user_label(request.user), reason="Lead created")
-                services.log_activity(request.user, "assign", f"Assigned to {user_label(owner)}", lead=lead)
-            services.log_audit(request.user, "lead_created", f"{lead.display_id} created ({lead.customer_name})",
-                               {"reference_by": user_label(lead.reference_by), "assigned_to": user_label(owner)}, "lead", lead.pk)
-            if contact:
-                Contact.objects.filter(pk=contact.pk).update(status=Contact.STATUS_CONVERTED, updated_at=timezone.now())
-                services.log_activity(request.user, "converted", f"Converted to lead {lead.display_id}", contact=contact)
+            try:
+                with transaction.atomic():
+                    if contact:
+                        # Claim the contact atomically. Only one concurrent request can flip
+                        # it to "converted"; the other gets 0 rows and is turned away.
+                        claimed = (Contact.objects.filter(pk=contact.pk, is_deleted=False)
+                                   .exclude(status=Contact.STATUS_CONVERTED)
+                                   .update(status=Contact.STATUS_CONVERTED, updated_at=timezone.now()))
+                        if not claimed or Lead.objects.filter(contact_id=contact.pk).exists():
+                            raise _ContactAlreadyConverted()
 
-            synced, error_message = send_lead_to_n8n(lead)
+                    lead = form.save(commit=False)
+                    lead.created_by = request.user
+                    lead.reference_by = (contact.reference_by if contact and contact.reference_by_id else request.user)
+                    owner = form.cleaned_data.get("assigned_to_user") if admin else request.user
+                    if admin and owner is None and contact and contact.current_assigned_to_id:
+                        owner = contact.current_assigned_to
+                    lead.assigned_to = owner
+                    lead.original_assigned_to = owner
+                    if contact:
+                        lead.contact, lead.import_batch = contact, contact.import_batch
+                    lead.save()
+                    services.log_activity(request.user, "created", "Lead created" + (f" from contact #{contact.pk}" if contact else ""), lead=lead)
+                    if owner:
+                        AssignmentHistory.objects.create(
+                            lead=lead, action=AssignmentHistory.ACTION_ASSIGN, to_user=owner, to_name=user_label(owner),
+                            changed_by=request.user, changed_by_name=user_label(request.user), reason="Lead created")
+                        services.log_activity(request.user, "assign", f"Assigned to {user_label(owner)}", lead=lead)
+                    services.log_audit(request.user, "lead_created", f"{lead.display_id} created ({lead.customer_name})",
+                                       {"reference_by": user_label(lead.reference_by), "assigned_to": user_label(owner)}, "lead", lead.pk)
+                    if contact:
+                        services.log_activity(request.user, "converted", f"Converted to lead {lead.display_id}", contact=contact)
+                        services.log_audit(request.user, "contact_converted",
+                                           f"Contact #{contact.pk} ({contact.name}) converted to {lead.display_id}",
+                                           {"contact_id": contact.pk, "lead_id": lead.pk}, "contact", contact.pk)
+            except _ContactAlreadyConverted:
+                return _already_converted_response(request, contact)
+
+            # Lead + contact conversion are committed. From here on nothing may undo them.
+            try:
+                synced, error_message = send_lead_to_n8n(lead)
+            except Exception:  # send_lead_to_n8n() promises not to raise; belt and braces
+                logging.getLogger("crm.n8n").exception("Unexpected n8n error for lead %s", lead.pk)
+                synced = False
+            # The Lead ID only exists now that the row is saved, so this is the
+            # first place it can honestly be shown to the user.
             if synced:
-                messages.success(request, "Lead created successfully and automation started.")
+                messages.success(request, f"Lead {lead.display_id} created successfully and automation started."
+                                 if not contact else f"{contact.name} converted to lead {lead.display_id} and automation started.")
             else:
-                messages.warning(request, "Lead saved successfully, but automation sync is pending.")
+                messages.warning(request, f"Lead {lead.display_id} saved successfully, but automation sync is pending."
+                                 if not contact else f"{contact.name} was converted to lead {lead.display_id}, "
+                                                     "but automation sync is pending.")
             return redirect("lead_detail", lead_id=lead.pk)
     else:
         initial = {}

@@ -264,11 +264,35 @@ class Lead(models.Model):
     def __str__(self):
         return self.customer_name
 
+    LEAD_ID_PREFIX = "KM"
+
     @property
     def display_id(self):
-        """Human Lead ID (KM-1058). The DB pk stays the real identifier —
-        it is also what n8n / Google Sheets already receive as ``lead_id``."""
-        return f"KM-{self.pk}"
+        """
+        The human-readable Lead ID, e.g. ``KM-1058``.
+
+        Deliberately *derived* from the database primary key rather than stored
+        in a second column, because the pk already gives every guarantee a Lead
+        ID needs:
+
+        * server-generated — assigned by the database sequence on INSERT
+          (BigAutoField); no form, API payload or JavaScript can supply it;
+        * unique + concurrency-safe — the DB sequence hands out each value once,
+          so simultaneous Lead creation can never collide;
+        * permanent — a pk never changes, and neither the sequence (PostgreSQL)
+          nor AUTOINCREMENT (SQLite) reuses a deleted Lead's number;
+        * not editable — this is a read-only property (assigning to it raises
+          AttributeError) and it is not in ``LeadForm.Meta.fields``.
+
+        The pk is also still sent to n8n as the numeric ``lead_id``; this string
+        goes out separately as ``lead_reference_id``.
+
+        A Lead that has not been saved yet has no ID, so this returns "" rather
+        than a fake value such as "KM-None".
+        """
+        if self.pk is None:
+            return ""
+        return f"{self.LEAD_ID_PREFIX}-{self.pk}"
 
     def save(self, *args, **kwargs):
         self.phone_normalized = normalize_phone(self.contact_number)
@@ -592,6 +616,169 @@ class Activity(models.Model):
             models.Index(fields=["lead", "created_at"], name="activity_lead_idx"),
             models.Index(fields=["contact", "created_at"], name="activity_contact_idx"),
         ]
+
+
+
+def _new_enrollment_code():
+    # Unambiguous alphabet (no 0/O/1/I/L). 8 chars ~ 40 bits, single use, 30-minute life, rate-limited.
+    alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+class TrustedDevice(models.Model):
+    """
+    A browser/device an admin has approved for one staff member's attendance.
+
+    Identity is a random 256-bit secret handed to the browser as an HttpOnly
+    cookie exactly once, at enrolment; only its SHA-256 is stored here. The
+    User-Agent is kept purely as descriptive metadata and is NEVER used to
+    decide anything.
+
+    Why this is separate from CallDevice: a CallDevice token belongs to the
+    Android app's bearer-token API. A browser session cannot present it, and
+    exposing it to the browser would weaken that API. So calling devices are
+    left completely untouched.
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="trusted_devices")
+    label = models.CharField(max_length=100, blank=True)
+
+    # One-time enrolment (admin generates, staff redeems once on the device to trust).
+    enrollment_code_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    enrollment_expires = models.DateTimeField(null=True, blank=True)
+
+    # Permanent credential after enrolment. Hash only.
+    token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    enrolled_at = models.DateTimeField(null=True, blank=True)
+
+    is_active = models.BooleanField(default=True, help_text="Turn off (revoke) to stop this device counting for attendance.")
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    last_ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True, help_text="Descriptive only; never used for verification.")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "is_active"], name="trusteddev_user_active_idx")]
+
+    def __str__(self):
+        return f"{self.label or 'Device'} — {user_label(self.user)}"
+
+    @property
+    def is_enrolled(self):
+        return bool(self.token_hash)
+
+    @property
+    def state(self):
+        if not self.is_active:
+            return "revoked"
+        if self.is_enrolled:
+            return "trusted"
+        if self.enrollment_expires and self.enrollment_expires <= timezone.now():
+            return "expired"
+        return "pending"
+
+    def start_enrollment(self, now=None):
+        """Issues a fresh single-use code. Returns the plaintext once; only its hash is stored."""
+        now = now or timezone.now()
+        raw = _new_enrollment_code()
+        self.enrollment_code_hash = hash_token(raw)
+        self.enrollment_expires = now + timezone.timedelta(minutes=30)
+        self.save(update_fields=["enrollment_code_hash", "enrollment_expires"])
+        return raw
+
+
+class AttendanceEvent(models.Model):
+    """
+    Neutral audit / anomaly record for attendance verification.
+
+    These describe what the SERVER observed ("Location Outside Office"), never
+    a conclusion about the person. An admin reviews them; nothing here flags or
+    penalises anyone automatically.
+    """
+
+    ACTION_START = "start"
+    ACTION_END = "end"
+    ACTION_ENROLL = "enroll"
+    ACTION_ADMIN = "admin"
+    ACTION_CHOICES = [
+        (ACTION_START, "Start Day"), (ACTION_END, "End Day"),
+        (ACTION_ENROLL, "Device enrolment"), (ACTION_ADMIN, "Admin"),
+    ]
+
+    TYPE_VERIFICATION_FAILED = "verification_failed"
+    TYPE_LOCATION_OUTSIDE = "location_outside"
+    TYPE_LOCATION_UNAVAILABLE = "location_unavailable"
+    TYPE_POOR_ACCURACY = "poor_accuracy"
+    TYPE_IP_NOT_ALLOWED = "ip_not_allowed"
+    TYPE_DEVICE_MISMATCH = "device_mismatch"
+    TYPE_REPEATED_ATTEMPT = "repeated_attempt"
+    TYPE_DUPLICATE_START = "duplicate_start"
+    TYPE_DUPLICATE_END = "duplicate_end"
+    TYPE_SUSPICIOUS_TRANSITION = "suspicious_transition"
+    TYPE_UNEXPECTED_INPUT = "unexpected_input"
+    TYPE_ADMIN_OVERRIDE = "admin_override"
+    TYPE_CHOICES = [
+        (TYPE_VERIFICATION_FAILED, "Verification Failed"),
+        (TYPE_LOCATION_OUTSIDE, "Location Outside Office"),
+        (TYPE_LOCATION_UNAVAILABLE, "Location Unavailable"),
+        (TYPE_POOR_ACCURACY, "Poor GPS Accuracy"),
+        (TYPE_IP_NOT_ALLOWED, "IP Not Allowed"),
+        (TYPE_DEVICE_MISMATCH, "Device Mismatch"),
+        (TYPE_REPEATED_ATTEMPT, "Repeated Attempt"),
+        (TYPE_DUPLICATE_START, "Duplicate Start"),
+        (TYPE_DUPLICATE_END, "Duplicate End"),
+        (TYPE_SUSPICIOUS_TRANSITION, "Unexpected State Transition"),
+        (TYPE_UNEXPECTED_INPUT, "Unexpected Input Ignored"),
+        (TYPE_ADMIN_OVERRIDE, "Admin Override"),
+    ]
+
+    OUTCOME_REJECTED = "rejected"   # the action was refused
+    OUTCOME_FLAGGED = "flagged"     # the action went through; recorded for review
+    OUTCOME_OVERRIDE = "override"
+    OUTCOME_CHOICES = [(OUTCOME_REJECTED, "Rejected"), (OUTCOME_FLAGGED, "Flagged"), (OUTCOME_OVERRIDE, "Override")]
+
+    REVIEW_OPEN = "open"
+    REVIEW_REVIEWED = "reviewed"
+    REVIEW_DISMISSED = "dismissed"
+    REVIEW_CHOICES = [(REVIEW_OPEN, "Open"), (REVIEW_REVIEWED, "Reviewed"), (REVIEW_DISMISSED, "Dismissed")]
+
+    # SET_NULL + a name snapshot: this history must survive staff account changes.
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    user_name = models.CharField(max_length=150, blank=True)
+    attendance = models.ForeignKey("Attendance", on_delete=models.SET_NULL, null=True, blank=True, related_name="events")
+    action = models.CharField(max_length=8, choices=ACTION_CHOICES)
+    event_type = models.CharField(max_length=24, choices=TYPE_CHOICES, db_index=True)
+    outcome = models.CharField(max_length=10, choices=OUTCOME_CHOICES)
+    attempt_key = models.CharField(max_length=32, blank=True, db_index=True, help_text="Groups the events of one attempt.")
+    message = models.CharField(max_length=300, blank=True)
+
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    accuracy = models.FloatField(null=True, blank=True)
+    distance_from_office = models.FloatField(null=True, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    device = models.ForeignKey(TrustedDevice, on_delete=models.SET_NULL, null=True, blank=True, related_name="events")
+    details = models.JSONField(default=dict, blank=True)
+
+    review_status = models.CharField(max_length=10, choices=REVIEW_CHOICES, default=REVIEW_OPEN, db_index=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=255, blank=True)
+
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["user", "action", "created_at"], name="attevent_user_action_idx")]
+
+    def __str__(self):
+        return f"{self.get_event_type_display()} · {self.user_name or 'unknown'} · {self.created_at:%Y-%m-%d %H:%M}"
 
 
 class AuditLog(models.Model):
@@ -949,3 +1136,152 @@ class CallRecord(models.Model):
         if not self.phone_normalized:
             self.phone_normalized = normalize_phone(self.phone_number)
         super().save(*args, **kwargs)
+
+
+class Attendance(models.Model):
+    """
+    One row per staff member per business day (Asia/Kolkata work_date).
+
+    State machine (derived, never client-supplied):
+        NOT_STARTED  -> no row for today
+        ACTIVE       -> row exists, end_time IS NULL, status "in_progress"
+        ENDED        -> end_time set, duration + status finalized (terminal)
+
+    The database itself enforces the rules: one row per (user, work_date), and
+    a CHECK constraint that an open row has no end/duration while a closed row
+    always has both plus a final status.
+    """
+
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_FULL_DAY = "full_day"
+    STATUS_HALF_DAY = "half_day"
+    STATUS_SHORT_DAY = "short_day"
+    STATUS_CHOICES = [
+        (STATUS_IN_PROGRESS, "In Progress"),
+        (STATUS_FULL_DAY, "Full Day"),
+        (STATUS_HALF_DAY, "Half Day"),
+        (STATUS_SHORT_DAY, "Short Day"),
+    ]
+
+    # PROTECT (not CASCADE): attendance history must never vanish silently
+    # because a staff account was deleted.
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="attendance_records")
+    work_date = models.DateField(db_index=True)
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField(null=True, blank=True)
+    worked_duration = models.DurationField(null=True, blank=True)
+    attendance_status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_IN_PROGRESS)
+    auto_ended = models.BooleanField(default=False)
+
+    # --- Verification evidence (Feature 5). Everything below is written by the
+    # server from what it measured itself (distance, IP, device); the browser
+    # only ever supplies raw latitude/longitude/accuracy, which are validated.
+    VERIFY_NOT_CHECKED = "not_checked"      # no check was enabled when this day started
+    VERIFY_VERIFIED = "verified"            # every enabled check passed
+    VERIFY_OVERRIDE = "admin_override"      # an admin started the day on the staff member's behalf
+    VERIFY_CHOICES = [
+        (VERIFY_NOT_CHECKED, "Not checked"),
+        (VERIFY_VERIFIED, "Verified"),
+        (VERIFY_OVERRIDE, "Admin override"),
+    ]
+    start_verification = models.CharField(max_length=16, choices=VERIFY_CHOICES, default=VERIFY_NOT_CHECKED)
+    start_latitude = models.FloatField(null=True, blank=True)
+    start_longitude = models.FloatField(null=True, blank=True)
+    start_accuracy = models.FloatField(null=True, blank=True, help_text="GPS accuracy radius in metres, as reported by the device.")
+    start_distance_from_office = models.FloatField(null=True, blank=True, help_text="Metres. Calculated by the server.")
+    start_ip = models.GenericIPAddressField(null=True, blank=True)
+    start_device = models.ForeignKey(
+        "TrustedDevice", on_delete=models.SET_NULL, null=True, blank=True, related_name="start_attendances",
+    )
+    end_latitude = models.FloatField(null=True, blank=True)
+    end_longitude = models.FloatField(null=True, blank=True)
+    end_accuracy = models.FloatField(null=True, blank=True)
+    end_distance_from_office = models.FloatField(null=True, blank=True)
+    end_ip = models.GenericIPAddressField(null=True, blank=True)
+    end_device = models.ForeignKey(
+        "TrustedDevice", on_delete=models.SET_NULL, null=True, blank=True, related_name="end_attendances",
+    )
+    override_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+    override_reason = models.CharField(max_length=255, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-work_date", "user_id"]
+        # Staff Attendance dashboard: filter by day + status, and by status alone.
+        # (staff: the FK index + the (user, work_date) unique constraint already cover it;
+        # work_date already has its own db_index.)
+        indexes = [
+            models.Index(fields=["work_date", "attendance_status"], name="att_date_status_idx"),
+            models.Index(fields=["attendance_status"], name="att_status_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "work_date"], name="uniq_attendance_user_work_date"),
+            models.CheckConstraint(
+                check=(
+                    models.Q(end_time__isnull=True, worked_duration__isnull=True,
+                             attendance_status="in_progress", auto_ended=False)
+                    | (models.Q(end_time__isnull=False, worked_duration__isnull=False)
+                       & ~models.Q(attendance_status="in_progress"))
+                ),
+                name="attendance_state_consistent",
+            ),
+            models.CheckConstraint(
+                check=models.Q(end_time__isnull=True) | models.Q(end_time__gte=models.F("start_time")),
+                name="attendance_end_not_before_start",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{user_label(self.user)} · {self.work_date} · {self.get_attendance_status_display()}"
+
+    @property
+    def is_active(self):
+        return self.end_time is None
+
+
+class AttendanceCorrection(models.Model):
+    """
+    One row per field an admin changed on an attendance record.
+
+    Names and the work date are snapshotted and the FKs are SET_NULL, so this
+    history stays readable and complete even if an account is later removed.
+    Rows are only ever created by crm.attendance_admin.apply_correction(), and
+    never edited or deleted by the application.
+    """
+
+    FIELD_START = "start_time"
+    FIELD_END = "end_time"
+    FIELD_STATUS = "attendance_status"
+    FIELD_AUTO_ENDED = "auto_ended"
+    FIELD_CHOICES = [
+        (FIELD_START, "Start time"),
+        (FIELD_END, "End time"),
+        (FIELD_STATUS, "Status"),
+        (FIELD_AUTO_ENDED, "Auto ended"),
+    ]
+
+    attendance = models.ForeignKey(Attendance, on_delete=models.SET_NULL, null=True, blank=True, related_name="corrections")
+    staff = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    staff_name = models.CharField(max_length=150, blank=True)
+    work_date = models.DateField()
+    admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    admin_name = models.CharField(max_length=150, blank=True)
+    field = models.CharField(max_length=20, choices=FIELD_CHOICES)
+    old_value = models.CharField(max_length=60, blank=True)
+    new_value = models.CharField(max_length=60, blank=True)
+    reason = models.CharField(max_length=500)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["attendance", "created_at"], name="attcorr_att_idx"),
+            models.Index(fields=["staff", "work_date"], name="attcorr_staff_date_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.staff_name} · {self.work_date} · {self.get_field_display()}"

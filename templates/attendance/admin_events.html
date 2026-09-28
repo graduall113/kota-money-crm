@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Attendance Review · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Attendance Review</h1>
+  <p>Neutral records of what the server observed during Start Day / End Day verification{% if open_count %} — <strong>{{ open_count }} open</strong>{% endif %}. An event is a prompt to look, not a conclusion about anyone. <a class="link" href="{% url 'settings_page' %}?section=attendance">Verification settings →</a></p>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><h2>Admin override: start a day</h2></div>
+  <form method="post" action="{% url 'attendance_override' %}" class="inline-form" style="padding:16px 22px;">
+    {% csrf_token %}
+    <label>Staff
+      <select name="staff" required>
+        <option value="">Choose staff…</option>
+        {% for s in override_candidates %}<option value="{{ s.pk }}">{{ s.get_full_name|default:s.username }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Reason <input type="text" name="reason" maxlength="255" required minlength="5" placeholder="e.g. phone dead, verified in person" style="min-width:280px;"></label>
+    <button class="btn-primary btn-sm">Start day (override)</button>
+  </form>
+  <p class="muted" style="padding:0 22px 16px;">Uses the server clock at this moment, is marked “Admin override” on the attendance record, and is written to the audit log. Only staff who haven't started today are listed.</p>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <form method="get" class="filter-grid">
+    <div><label>Type</label><select name="type"><option value="">All</option>{% for k, v in types %}<option value="{{ k }}" {% if GET.type == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div><label>Review</label><select name="review"><option value="">All</option>{% for k, v in reviews %}<option value="{{ k }}" {% if GET.review == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div><label>Outcome</label><select name="outcome"><option value="">All</option>{% for k, v in outcomes %}<option value="{{ k }}" {% if GET.outcome == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div><label>Staff</label><select name="staff"><option value="">All</option>{% for s in staff_members %}<option value="{{ s.pk }}" {% if GET.staff == s.pk|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+    <div><label>Search</label><input type="text" name="q" value="{{ GET.q }}"></div>
+    <div><label>From</label><input type="text" name="from" value="{{ GET.from }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    <div><label>To</label><input type="text" name="to" value="{{ GET.to }}" placeholder="DD/MM/YYYY" class="date-text"></div>
+    <div class="filter-actions"><button class="btn-primary btn-sm">Apply Filters</button><a href="{% url 'attendance_events' %}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a></div>
+  </form>
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>When</th><th>Staff</th><th>Action</th><th>Event</th><th>Details</th><th>Review</th></tr></thead>
+    <tbody>
+    {% for e in events %}
+      <tr>
+        <td class="nowrap">{{ e.created_at|date:"d/m/Y — H:i" }}</td>
+        <td>{{ e.user_name|default:"—" }}</td>
+        <td>{{ e.get_action_display }}<br><span class="muted">{{ e.get_outcome_display }}</span></td>
+        <td><span class="badge {% if e.outcome == 'rejected' %}bad{% elif e.outcome == 'flagged' %}warn{% endif %}">{{ e.get_event_type_display }}</span><div class="muted">{{ e.message }}</div></td>
+        <td class="muted">
+          {% if e.distance_from_office is not None %}Distance: {{ e.distance_from_office|floatformat:0 }} m<br>{% endif %}
+          {% if e.accuracy is not None %}Accuracy: ±{{ e.accuracy|floatformat:0 }} m<br>{% endif %}
+          {% if e.ip %}IP: {{ e.ip }}<br>{% endif %}
+          {% if e.device %}Device: {{ e.device.label|default:"registered" }}{% endif %}
+        </td>
+        <td>
+          <form method="post" action="{% url 'attendance_event_review' e.pk %}" class="inline-form">
+            {% csrf_token %}
+            <select name="status">{% for k, v in reviews %}<option value="{{ k }}" {% if e.review_status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+            <input type="text" name="note" value="{{ e.review_note }}" maxlength="255" placeholder="Note" style="width:140px;">
+            <button class="btn-secondary btn-sm">Save</button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="muted">No attendance events recorded.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% include "partials/pagination.html" %}
+</div>
+{% endblock %}

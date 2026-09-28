@@ -19,6 +19,7 @@ import json
 import logging
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -128,8 +129,12 @@ def sync_calls(request):
     )
     logger.info("[CALLING API] Calls received: %d", len(events))
 
-    device.last_seen = timezone.now()
-    device.save(update_fields=["last_seen"])
+    # A single UPDATE (not .save()) so that if an admin deleted/revoked this
+    # device a millisecond ago we get "0 rows" and answer 401 cleanly,
+    # instead of a 500 from saving a row that no longer exists.
+    if not CallDevice.objects.filter(pk=device.pk, is_active=True).update(last_seen=timezone.now()):
+        logger.info("[CALLING API] Sync rejected — device %s was revoked/deleted mid-request", device.pk)
+        return _error("Invalid, revoked, or expired device token.", status=401)
 
     # Idempotency: look up which external_call_ids already exist BEFORE
     # inserting anything, so a retried/duplicate-delivered batch (e.g. the
@@ -230,7 +235,18 @@ def sync_calls(request):
         # ignore_conflicts=True makes the unique external_call_id constraint
         # the final word on duplicates even if two sync requests race — a
         # single bulk INSERT stays cheap however large call volume grows.
-        CallRecord.objects.bulk_create(to_create, ignore_conflicts=True)
+        try:
+            with transaction.atomic():
+                CallRecord.objects.bulk_create(to_create, ignore_conflicts=True)
+        except IntegrityError:
+            # Only realistic cause: the device row was deleted by an admin
+            # between authentication above and this insert (FK violation).
+            # Reject like any revoked device; the phone keeps its call log
+            # and will simply fail to sync until re-paired.
+            if not CallDevice.objects.filter(pk=device.pk, is_active=True).exists():
+                logger.info("[CALLING API] Sync rejected — device %s deleted before insert", device.pk)
+                return _error("Invalid, revoked, or expired device token.", status=401)
+            raise
 
         # CRITICAL: bulk_create(..., ignore_conflicts=True) does NOT tell us
         # which rows actually landed in the table — Django can't populate

@@ -42,7 +42,14 @@
       <div class="dc-actions">
         <form method="post" action="{% url 'calling_device_toggle' d.pk %}">
           {% csrf_token %}
-          <button class="btn-secondary btn-sm">{% if d.is_active %}Revoke{% else %}Re-enable{% endif %}</button>
+          <button type="submit" class="btn-secondary btn-sm">{% if d.is_active %}Revoke{% else %}Re-enable{% endif %}</button>
+        </form>
+        <form method="post" action="{% url 'calling_device_delete' d.pk %}" class="js-confirm"
+              data-confirm-title="Delete device?"
+              data-confirm-label="Delete"
+              data-confirm-message="{% if d.is_paired and d.is_active %}This device is currently paired. Deleting it will permanently remove this device pairing record. This will not delete the staff account, leads, contacts, or call history. Continue?{% else %}Deleting it will permanently remove this device pairing record. This will not delete the staff account, leads, contacts, or call history. Continue?{% endif %}">
+          {% csrf_token %}
+          <button type="submit" class="btn-danger btn-sm">Delete</button>
         </form>
       </div>
     </div>
@@ -56,4 +63,18 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+/* Double-click guard: once a device action form is really submitted, lock its
+   button so a second click can't fire a second POST. (The server is also
+   idempotent — this just avoids the needless second request.) */
+(function () {
+  document.querySelectorAll('.dc-actions form').forEach(function (f) {
+    f.addEventListener('submit', function () {
+      if (f.classList.contains('js-confirm') && !f.dataset.confirmed) return; // modal not yet confirmed
+      f.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    });
+  });
+})();
+</script>
 {% endblock %}
