@@ -13,11 +13,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # -----------------------------------------------------------------
 # Replace this with a fresh secret before deploying:
 #   python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-SECRET_KEY = "django-insecure-change-me-before-deploying"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "0").lower() in ("1", "true", "yes", "on")
 
-ALLOWED_HOSTS = ["*"]  # tighten this before deploying to production
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+
+ALLOWED_HOSTS = [
+    "kota-money-crm.onrender.com",
+]  # tighten this before deploying to production
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://kota-money-crm.onrender.com",
+]
 
 # -----------------------------------------------------------------
 # APPS
