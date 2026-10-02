@@ -3,7 +3,8 @@ from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
 
 from .datefmt import DateTextField
-from .models import Contact, Lead, Segment, StaffProfile
+from . import holidays as holiday_rules
+from .models import Contact, Holiday, Lead, Segment, StaffProfile
 
 TEXT_WIDGET = {"class": "field-input"}
 
@@ -441,6 +442,12 @@ class ContactForm(forms.ModelForm):
         # Never let this form create/edit a "converted" contact by hand —
         # that transition only happens through the real convert-to-lead flow.
         self.fields["status"].choices = [c for c in Contact.STATUS_CHOICES if c[0] != Contact.STATUS_CONVERTED]
+        # An ALREADY-converted contact must stay converted when it is edited and saved. Its status is
+        # not among the choices above, so without this the dropdown would silently fall back to "New"
+        # on save. Show it, lock it (disabled fields ignore POSTed values).
+        if self.instance is not None and self.instance.pk and self.instance.status == Contact.STATUS_CONVERTED:
+            self.fields["status"].choices = Contact.STATUS_CHOICES
+            self.fields["status"].disabled = True
         self.fields["name"].required = True
         self.fields["phone"].required = True
 
@@ -449,3 +456,95 @@ class ContactForm(forms.ModelForm):
         if not phone:
             raise forms.ValidationError("Enter a contact number.")
         return phone
+
+
+class HolidayForm(forms.ModelForm):
+    """
+    Add / Edit a holiday. Admin-only (the views enforce that; this form only validates).
+
+    "Holiday type" is a convenience that fills in the end date on the server, so it
+    works without JavaScript: Single day -> end = start, One week -> start + 6 days,
+    One month -> start .. same date next month - 1 day. "Date range" uses the typed end date.
+
+    Rules:
+      * end date before start date              -> error on the End date field
+      * same-name holiday on overlapping dates  -> refused (almost certainly entered twice)
+      * exactly the same dates as another row   -> refused (uniq_holiday_period constraint)
+      * overlaps another ACTIVE holiday         -> warning; saved only once the admin confirms
+        with "Save anyway" (`confirm_overlap`). `self.overlaps` lists the clashing holidays.
+    """
+
+    duration = forms.ChoiceField(
+        label="Holiday type", choices=holiday_rules.DURATION_CHOICES, initial=holiday_rules.DURATION_CUSTOM,
+        widget=forms.Select(attrs=TEXT_WIDGET),
+    )
+    start_date = DateTextField(label="From")
+    end_date = DateTextField(required=False, label="To")
+    confirm_overlap = forms.BooleanField(required=False)
+
+    class Meta:
+        model = Holiday
+        fields = ["name", "start_date", "end_date", "reason", "is_active"]
+        labels = {"name": "Holiday name", "reason": "Reason / note", "is_active": "Active"}
+        widgets = {
+            "name": forms.TextInput(attrs={**TEXT_WIDGET, "placeholder": "e.g. Diwali Holiday"}),
+            "reason": forms.Textarea(attrs={**TEXT_WIDGET, "rows": 2, "placeholder": "Optional - shown to admins only"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.overlaps = []
+        if self.instance.pk and not self.is_bound and self.instance.is_single_day:
+            self.initial["duration"] = holiday_rules.DURATION_SINGLE
+
+    def clean_name(self):
+        return " ".join(self.cleaned_data["name"].split())
+
+    def clean(self):
+        cleaned = super().clean()
+        start = cleaned.get("start_date")
+        if start is None:
+            return cleaned  # the field itself already reported the problem
+
+        # 1. Work out the end date.
+        kind = cleaned.get("duration") or holiday_rules.DURATION_CUSTOM
+        end = holiday_rules.end_for_preset(kind, start)
+        if end is not None:
+            self.errors.pop("end_date", None)  # a preset ignores whatever was typed in the To box
+        else:
+            end = cleaned.get("end_date")
+            if end is None:
+                if "end_date" not in self.errors:
+                    self.add_error("end_date", "Enter the last day of the holiday, or choose \u201cSingle day\u201d.")
+                return cleaned
+        cleaned["end_date"] = end
+
+        # 2. Basic sanity.
+        if end < start:
+            self.add_error("end_date", "The end date cannot be before the start date.")
+            return cleaned
+        if (end - start).days + 1 > holiday_rules.MAX_SPAN_DAYS:
+            self.add_error("end_date", f"A single holiday can span at most {holiday_rules.MAX_SPAN_DAYS} days. Check the dates, or split it into two.")
+        if start.year < holiday_rules.MIN_YEAR or end.year > holiday_rules.MAX_YEAR:
+            self.add_error("start_date", f"Enter a year between {holiday_rules.MIN_YEAR} and {holiday_rules.MAX_YEAR}.")
+        if self.errors:
+            return cleaned
+
+        # 3. Accidental duplicates / overlaps.
+        pk = self.instance.pk
+        name = cleaned.get("name")
+        if name:
+            clash = holiday_rules.find_same_name_conflict(name, start, end, pk)
+            # (identical dates are reported by the uniq_holiday_period constraint instead - don't say it twice)
+            if clash and (clash.start_date, clash.end_date) != (start, end):
+                raise forms.ValidationError(
+                    f"A holiday named \u201c{clash.name}\u201d already covers {clash.start_date:%d/%m/%Y} - {clash.end_date:%d/%m/%Y}"
+                    f"{'' if clash.is_active else ' (currently inactive)'}. Edit or re-activate that one instead of adding a duplicate."
+                )
+        if cleaned.get("is_active") and not cleaned.get("confirm_overlap"):
+            overlaps = [h for h in holiday_rules.find_overlaps(start, end, pk) if (h.start_date, h.end_date) != (start, end)]
+            if overlaps:
+                self.overlaps = overlaps
+                raise forms.ValidationError("These dates overlap another active holiday. Nothing has been saved yet.", code="overlap")
+        return cleaned
+

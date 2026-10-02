@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.http import QueryDict
 from django.utils import timezone
 
-from . import filters, services
+from . import filters, lead_sync, services
 from .access import is_admin, visible_contacts, visible_leads
 from .models import AssignmentHistory, Contact, Lead, Segment, user_label
 
@@ -100,9 +100,14 @@ def execute_job(job_id):
         elif job.kind == "delete":
             if not is_admin(user):
                 raise PermissionError("Only admins can bulk delete.")
-            deleted = services.bulk_delete(model, pks, user, progress)
-            result = {"deleted": deleted}
-            services.log_audit(user, "bulk_delete", f"{deleted:,} {p['model']}s deleted", {"deleted": deleted}, p["model"])
+            # bulk_delete is atomic and writes its own detailed audit entry (selected / deleted /
+            # protected / IDs) in the same transaction.
+            outcome = services.bulk_delete(model, pks, user, progress)
+            result = {"selected": outcome["selected"], "deleted": outcome["deleted"],
+                      "protected": len(outcome["protected"]), "protected_ids": list(outcome["protected"])[:50],
+                      "leads_detached": outcome["leads_detached"]}
+        if p["model"] == "lead" and job.kind != "delete":
+            lead_sync.schedule_drain()  # bulk paths queued their events; deliver them paced, off-request
         job.result, job.status = result, BackgroundJob.STATUS_DONE
     except Exception as exc:  # noqa: BLE001 — recorded on the job, never crashes the server
         logger.exception("Background job %s failed", job_id)

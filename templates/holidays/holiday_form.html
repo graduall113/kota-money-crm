@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == "edit" %}Edit Holiday{% else %}Add Holiday{% endif %} · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{% if mode == "edit" %}Edit “{{ holiday_name }}”{% else %}Add Holiday{% endif %}</h1>
+  <p>Every date from <strong>From</strong> to <strong>To</strong> (both included) becomes a holiday. Dates are DD/MM/YYYY.</p>
+</div>
+
+{% if form.overlaps %}
+<div class="panel" style="max-width:620px;margin-bottom:16px;border-color:#f0c36d;background:#fff8e6;"><div class="panel-body">
+  <strong>These dates overlap another active holiday.</strong> Nothing has been saved yet.
+  <ul style="margin:10px 0 12px 18px;">
+    {% for o in form.overlaps %}<li>{{ o.name }} — {% if o.is_single_day %}{{ o.start_date|date:"d/m/Y" }}{% else %}{{ o.start_date|date:"d/m/Y" }} to {{ o.end_date|date:"d/m/Y" }}{% endif %}</li>{% endfor %}
+  </ul>
+  <p class="help-text" style="margin:0 0 12px;">Overlaps are allowed (for example a public holiday inside a longer shutdown). Change the dates above, or keep them as they are:</p>
+  <button type="submit" form="holiday-form" name="confirm_overlap" value="1" class="btn-primary btn-sm">Save anyway</button>
+</div></div>
+{% elif form.non_field_errors %}
+<div class="alert alert-error" style="max-width:620px;">{% for e in form.non_field_errors %}{{ e }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>
+{% endif %}
+
+<div class="panel" style="max-width:620px;"><div class="panel-body">
+  <form method="post" id="holiday-form" novalidate>{% csrf_token %}
+    <div class="field-group"><label for="{{ form.name.id_for_label }}">Holiday name *</label>{{ form.name }}{% if form.name.errors %}<div class="field-error">{{ form.name.errors|striptags }}</div>{% endif %}</div>
+
+    <div class="field-group"><label for="{{ form.duration.id_for_label }}">Holiday type</label>{{ form.duration }}
+      <div class="help-text">Single day, one week and one month fill in the end date for you. Choose “Date range” for anything else (for example 20/10/2026 to 27/10/2026).</div></div>
+
+    <div class="field-group"><label for="{{ form.start_date.id_for_label }}">From *</label>{{ form.start_date }}{% if form.start_date.errors %}<div class="field-error">{{ form.start_date.errors|striptags }}</div>{% endif %}</div>
+    <div class="field-group"><label for="{{ form.end_date.id_for_label }}">To</label>{{ form.end_date }}{% if form.end_date.errors %}<div class="field-error">{{ form.end_date.errors|striptags }}</div>{% endif %}
+      <div class="help-text" id="end-help"></div></div>
+
+    <div class="field-group"><label for="{{ form.reason.id_for_label }}">Reason / note (optional)</label>{{ form.reason }}{% if form.reason.errors %}<div class="field-error">{{ form.reason.errors|striptags }}</div>{% endif %}</div>
+
+    <div class="toggle-row"><input type="checkbox" name="is_active" id="{{ form.is_active.id_for_label }}" {% if form.is_active.value %}checked{% endif %}><label for="{{ form.is_active.id_for_label }}"><strong>Active</strong><span>Inactive holidays are kept on file but do not count as a holiday.</span></label></div>
+
+    <div style="margin-top:16px;">
+      <button class="btn-primary btn-inline">Save Holiday</button>
+      <a class="link" style="margin-left:14px;" href="{% url 'holiday_list' %}">Cancel</a>
+    </div>
+  </form>
+</div></div>
+
+<script>
+/* Convenience only - the server recomputes the end date from the chosen type, so this works with JS off too. */
+(function () {
+  var type = document.getElementById('{{ form.duration.id_for_label }}');
+  var from = document.getElementById('{{ form.start_date.id_for_label }}');
+  var to = document.getElementById('{{ form.end_date.id_for_label }}');
+  var help = document.getElementById('end-help');
+  if (!type || !from || !to) return;
+  function parse(v) {
+    var m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((v || '').trim());
+    if (!m) return null;
+    var d = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+    return (d.getUTCFullYear() === +m[3] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[1]) ? d : null;
+  }
+  function fmt(d) {
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(d.getUTCDate()) + '/' + p(d.getUTCMonth() + 1) + '/' + d.getUTCFullYear();
+  }
+  function plusMonthMinusDay(d) {
+    var y = d.getUTCFullYear(), m = d.getUTCMonth() + 1;
+    if (m > 11) { y += 1; m = 0; }
+    var last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(y, m, Math.min(d.getUTCDate(), last)) - 86400000);
+  }
+  function sync() {
+    var kind = type.value, start = parse(from.value), preset = kind !== 'custom';
+    to.readOnly = preset;
+    to.style.opacity = preset ? '.6' : '';
+    if (!preset) { help.textContent = ''; return; }
+    if (!start) { help.textContent = 'Enter the From date and the end date is filled in automatically.'; return; }
+    var end = kind === 'single' ? start : kind === 'week' ? new Date(start.getTime() + 6 * 86400000) : plusMonthMinusDay(start);
+    to.value = fmt(end);
+    help.textContent = 'Ends ' + fmt(end) + ' (' + Math.round((end - start) / 86400000 + 1) + ' day' + (end - start ? 's' : '') + ').';
+  }
+  type.addEventListener('change', sync);
+  from.addEventListener('input', sync);
+  sync();
+})();
+</script>
+{% endblock %}

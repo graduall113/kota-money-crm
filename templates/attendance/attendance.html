@@ -7,7 +7,19 @@
 </div>
 
 <div class="panel att-panel">
-  {% if attendance.state == 'not_started' %}
+  {% if attendance.state == 'not_started' and attendance.is_holiday %}
+    {# Holiday: the Start Day form is replaced by a status card. The server refuses Start Day too. #}
+    <div class="att-hero">
+      <div class="att-badge att-badge-holiday att-badge-lg">Holiday</div>
+      <div class="att-hero-title">Today is a holiday</div>
+      <dl class="att-facts">
+        <div><dt>Holiday</dt><dd>{{ attendance.holiday.name }}</dd></div>
+        <div><dt>{% if attendance.holiday.is_single_day %}Date{% else %}Dates{% endif %}</dt><dd>{{ attendance.holiday_label }}</dd></div>
+      </dl>
+      {% if attendance.holiday.reason %}<p class="muted">{{ attendance.holiday.reason }}</p>{% endif %}
+      <p class="muted">Attendance can't be started on a holiday and you won't be marked absent. Normal attendance resumes on the next working day.</p>
+    </div>
+  {% elif attendance.state == 'not_started' %}
     <div class="att-hero">
       <div class="att-hero-title">Ready to begin?</div>
       <p class="muted">Start your day to unlock the CRM. You can start once per day.</p>
@@ -42,6 +54,9 @@
       <p class="muted">CRM access is locked until you start your day tomorrow.</p>
     </div>
   {% endif %}
+  {% if attendance.is_holiday and attendance.state != 'not_started' %}
+    <p class="muted" style="margin:16px 0 0;"><span class="badge info">Worked — Holiday Declared Later</span> Today was declared a holiday ({{ attendance.holiday.name }}, {{ attendance.holiday_label }}). Your attendance has been kept.</p>
+  {% endif %}
 </div>
 
 <div class="panel">
@@ -70,7 +85,7 @@
       <thead><tr><th>Date</th><th>Started</th><th>Ended</th><th>Duration</th><th>Status</th></tr></thead>
       <tbody>
         {% for r in history %}
-        <tr><td>{{ r.date|date:"d/m/Y" }}</td><td>{{ r.started }}</td><td>{{ r.ended }}{% if r.auto_ended %} <span class="muted">(auto)</span>{% endif %}</td><td>{{ r.duration }}</td><td>{{ r.status }}{% if r.override %} <span class="muted">(admin start)</span>{% endif %}</td></tr>
+        <tr class="{{ r.row_class }}"><td>{{ r.date|date:"d/m/Y" }} <span class="muted">{{ r.date|date:"D" }}</span></td><td>{{ r.started }}</td><td>{{ r.ended }}{% if r.auto_ended %} <span class="muted">(auto)</span>{% endif %}</td><td>{{ r.duration }}</td><td><span class="att-status att-status-{{ r.badge }}">{{ r.status }}</span>{% if r.is_holiday %} <span class="muted">{{ r.holiday_name }}{% if r.holiday_label %} · {{ r.holiday_label }}{% endif %}</span>{% endif %}{% if r.override %} <span class="muted">(admin start)</span>{% endif %}{% if r.holiday_later %} <span class="badge info">Worked — Holiday Declared Later</span>{% endif %}</td></tr>
         {% empty %}
         <tr><td colspan="5" class="muted">No attendance recorded yet.</td></tr>
         {% endfor %}

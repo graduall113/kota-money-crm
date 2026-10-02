@@ -3,6 +3,7 @@ Django settings for the Kota Money CRM project.
 """
 
 import os
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -194,6 +195,17 @@ IMPORT_UPLOAD_DIR = Path(os.environ.get("IMPORT_UPLOAD_DIR", BASE_DIR / "import_
 # Run bulk jobs / imports inline instead of in a worker thread (used by tests).
 CRM_JOBS_INLINE = False
 
+# Lead -> n8n -> Google Sheets sync queue (crm/lead_sync.py).
+# Automatic background delivery after a Lead is saved. Switched OFF while running the test
+# suite so no test can ever POST to the real n8n webhook.
+CRM_LEAD_SYNC_AUTODISPATCH = "test" not in sys.argv
+# Minimum seconds between two sends inside one drain (Google Sheets write quota is ~60/min).
+CRM_LEAD_SYNC_MIN_INTERVAL = float(os.environ.get("CRM_LEAD_SYNC_MIN_INTERVAL", "1.0"))
+# OPTIONAL second n8n webhook used ONLY for edits/updates (not for a brand-new lead). Point it at
+# a small workflow that just does the Google Sheets "Append or Update Row" so edits never re-trigger
+# the new-lead Gmail / WhatsApp nodes. Empty = edits use N8N_LEAD_WEBHOOK_URL as well.
+N8N_LEAD_UPDATE_WEBHOOK_URL = os.environ.get("N8N_LEAD_UPDATE_WEBHOOK_URL", "")
+
 # Uploaded files above this size are streamed to a temp file by Django.
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 
@@ -205,14 +217,22 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 ATTENDANCE_TIMEZONE = os.environ.get("ATTENDANCE_TIMEZONE", "Asia/Kolkata")
 ATTENDANCE_WORK_START = os.environ.get("ATTENDANCE_WORK_START", "10:00")  # HH:MM, business tz
 ATTENDANCE_WORK_END = os.environ.get("ATTENDANCE_WORK_END", "19:00")      # auto-end moment
-# Worked duration (actual, start -> end) needed for each status:
-#   >= full-day minimum            -> Full Day
-#   >= half-day minimum            -> Half Day
-#   below the half-day minimum     -> Short Day
-# 480 = 8h: a late 11:00 start that runs to 19:00 (8h) is still a Full Day,
-# while 10:00 -> 16:00 (6h) is a Half Day.
-ATTENDANCE_FULL_DAY_MIN_MINUTES = int(os.environ.get("ATTENDANCE_FULL_DAY_MIN_MINUTES", "480"))
+# Worked duration (actual, start -> end) decides the status of a day that WAS started:
+#   >= full-day minimum            -> PRESENT
+#   >= half-day minimum            -> HALF DAY
+#   below the half-day minimum     -> ABSENT (too little work to count even as a half day)
+# Full-day minimum = expected full day - tolerance. Expected 8h (480) with a 90 min tolerance gives
+# 6h30: a normal ~7h day (late start / early finish) is PRESENT, while 5-6h is HALF DAY.
+# (The old rule was a flat 480 minutes, so ~7h wrongly came out as Half Day.)
+# ATTENDANCE_FULL_DAY_MIN_MINUTES can still be set directly to override the computed value.
+ATTENDANCE_EXPECTED_FULL_DAY_MINUTES = int(os.environ.get("ATTENDANCE_EXPECTED_FULL_DAY_MINUTES", "480"))
+ATTENDANCE_FULL_DAY_TOLERANCE_MINUTES = int(os.environ.get("ATTENDANCE_FULL_DAY_TOLERANCE_MINUTES", "90"))
+ATTENDANCE_FULL_DAY_MIN_MINUTES = int(os.environ.get(
+    "ATTENDANCE_FULL_DAY_MIN_MINUTES",
+    ATTENDANCE_EXPECTED_FULL_DAY_MINUTES - ATTENDANCE_FULL_DAY_TOLERANCE_MINUTES))
 ATTENDANCE_HALF_DAY_MIN_MINUTES = int(os.environ.get("ATTENDANCE_HALF_DAY_MIN_MINUTES", "240"))
+# Weekly off day (Python weekday(): Monday=0 ... Sunday=6).
+ATTENDANCE_WEEKLY_OFF_WEEKDAY = 6
 # Master switch. Leave True in production; set ATTENDANCE_ENFORCED=0 only as an
 # emergency off-switch (staff are then never locked out; nothing else changes).
 ATTENDANCE_ENFORCED = os.environ.get("ATTENDANCE_ENFORCED", "1").lower() in ("1", "true", "yes", "on")
@@ -224,3 +244,24 @@ ATTENDANCE_ENFORCED = os.environ.get("ATTENDANCE_ENFORCED", "1").lower() in ("1"
 # by sending their own X-Forwarded-For header. Verify on the Attendance
 # Verification settings page: it shows the IP the server currently sees for you.
 ATTENDANCE_TRUSTED_PROXY_COUNT = int(os.environ.get("ATTENDANCE_TRUSTED_PROXY_COUNT", "1"))
+
+# -----------------------------------------------------------------
+# STAFF CRM ACTIVITY MONITORING (mobile heartbeat + 15-minute inactivity rule)
+# -----------------------------------------------------------------
+# Everything is measured from what the CRM web page itself reports; the server clock is the only clock.
+# The CRM cannot (and does not claim to) know which OTHER phone app a staff member is using.
+ACTIVITY_MONITORING_ENABLED = os.environ.get("ACTIVITY_MONITORING_ENABLED", "1").lower() in ("1", "true", "yes", "on")
+ACTIVITY_HEARTBEAT_SECONDS = int(os.environ.get("ACTIVITY_HEARTBEAT_SECONDS", "60"))      # page -> server ping
+ACTIVITY_REPORT_MIN_SECONDS = int(os.environ.get("ACTIVITY_REPORT_MIN_SECONDS", "30"))    # max 1 activity ping / 30 s
+ACTIVITY_SERVER_MIN_SECONDS = int(os.environ.get("ACTIVITY_SERVER_MIN_SECONDS", "5"))     # server ignores faster repeats
+ACTIVITY_INACTIVITY_MINUTES = int(os.environ.get("ACTIVITY_INACTIVITY_MINUTES", "15"))    # business rule
+ACTIVITY_WARNING_MINUTES = int(os.environ.get("ACTIVITY_WARNING_MINUTES", "12"))          # warning shown from here
+ACTIVITY_ACTIVE_WINDOW_SECONDS = int(os.environ.get("ACTIVITY_ACTIVE_WINDOW_SECONDS", "120"))  # "CRM Active" if this recent
+ACTIVITY_CREDIT_SECONDS = int(os.environ.get("ACTIVITY_CREDIT_SECONDS", "60"))            # active time credited per interaction
+ACTIVITY_NETWORK_GRACE_SECONDS = int(os.environ.get("ACTIVITY_NETWORK_GRACE_SECONDS", "150"))   # missed heartbeats tolerated
+ACTIVITY_DISCONNECT_SECONDS = int(os.environ.get("ACTIVITY_DISCONNECT_SECONDS", "300"))   # silent this long -> Session Disconnected
+ACTIVITY_LUNCH_MAX_MINUTES = int(os.environ.get("ACTIVITY_LUNCH_MAX_MINUTES", "50"))      # a lunch counts as valid this long (business rule: 50 min)
+# Live assigned-customer-call channel (Android -> /api/staff-activity/live-call/). Separate from calling sync.
+ACTIVITY_LIVE_CALL_TTL_SECONDS = int(os.environ.get("ACTIVITY_LIVE_CALL_TTL_SECONDS", "180"))          # no update for this long -> call is stale, stops counting
+ACTIVITY_LIVE_CALL_HEARTBEAT_SECONDS = int(os.environ.get("ACTIVITY_LIVE_CALL_HEARTBEAT_SECONDS", "60"))  # Android refresh interval while on a call (keep well below TTL)
+ACTIVITY_DEVICE_POLL_SECONDS = int(os.environ.get("ACTIVITY_DEVICE_POLL_SECONDS", "60"))              # Android warning-status poll interval

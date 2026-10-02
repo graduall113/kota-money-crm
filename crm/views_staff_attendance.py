@@ -12,7 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import attendance, attendance_admin as aa, attendance_verify as verify_mod, exports, filters, services
+from . import attendance, attendance_admin as aa, attendance_verify as verify_mod, exports, filters, holidays as holiday_rules, services
 from .decorators import active_account_required, admin_required
 from .models import Attendance, user_label
 
@@ -24,10 +24,12 @@ def staff_attendance(request):
     """Today cards + filterable, paginated attendance table."""
     today = attendance.business_date()
     f = aa.parse_filters(request.GET, today)
-    page = filters.paginate(request, aa.build_queryset(f, today), per_page=25)  # only one page is ever loaded
+    source = aa.range_rows(f, today) if f.is_range else aa.build_queryset(f, today)
+    page = filters.paginate(request, source, per_page=25)  # only one page is ever loaded
     rows = aa.rows_for_page(page.object_list, f, today)
     return render(request, "attendance/admin_dashboard.html", {
         "active_page": "staff_attendance",
+        "holiday": holiday_rules.holiday_for(f.date),
         "summary": aa.today_summary(today),
         "f": f, "rows": rows, "page": page,
         "querystring": filters.querystring_without(request, "page"),
@@ -49,7 +51,7 @@ def staff_attendance_detail(request, pk):
         "active_page": "staff_attendance",
         "rec": rec, "staff_name": user_label(rec.user),
         "staff_code": getattr(getattr(rec.user, "staff_profile", None), "reference_code", ""),
-        "row": aa.Row(rec.user, rec.work_date, rec, attendance.business_date()),
+        "row": aa.Row(rec.user, rec.work_date, rec, attendance.business_date(), holiday=holiday_rules.holiday_for(rec.work_date)),
         "start_verdict": aa.location_verdict(rec.start_distance_from_office, rec.start_accuracy, cfg),
         "end_verdict": aa.location_verdict(rec.end_distance_from_office, rec.end_accuracy, cfg),
         "started_hhmm": rec.start_time.astimezone(attendance.business_tz()).strftime("%H:%M"),

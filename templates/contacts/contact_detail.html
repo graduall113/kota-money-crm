@@ -12,8 +12,8 @@
     {% if can_delete %}
     <form method="post" action="{% url 'contact_delete' contact.pk %}" class="js-confirm"
           data-confirm-title="Delete contact?"
-          data-confirm-message="Are you sure you want to delete {{ contact.name }}? This cannot be undone. Any linked leads and call history are kept — only this contact record is removed."
-          data-confirm-label="Delete">
+          data-confirm-message="Delete {{ contact.name }} permanently? This permanently removes the contact record from the database and cannot be undone. Any linked leads and call history are kept."
+          data-confirm-label="Delete Permanently">
       {% csrf_token %}
       <button type="submit" class="btn-danger">Delete</button>
     </form>

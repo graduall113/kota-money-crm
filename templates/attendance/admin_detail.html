@@ -9,11 +9,11 @@
 </div>
 
 <div class="panel">
-  <div class="panel-header"><h2>Attendance</h2><span class="badge {{ row.badge }}">{{ row.status_label }}</span></div>
+  <div class="panel-header"><h2>Attendance</h2><span class="badge {{ row.badge }}">{{ row.status_label }}</span>{% if row.worked_on_holiday %} <span class="badge info" title="{{ row.holiday_name }} · {{ row.holiday_period }}">{{ row.holiday_note }}</span>{% endif %}</div>
   <dl class="kv-grid" style="padding:18px 22px;">
     <div><dt>Staff</dt><dd>{{ staff_name }}<div class="muted">{{ rec.user.username }}{% if staff_code %} · {{ staff_code }}{% endif %}</div></dd></div>
     <div><dt>Date</dt><dd>{{ rec.work_date|date:"d/m/Y" }}</dd></div>
-    <div><dt>Status</dt><dd>{{ rec.get_attendance_status_display }}</dd></div>
+    <div><dt>Status</dt><dd><span class="badge {{ row.badge }}">{{ row.status_label }}</span></dd></div>
     <div><dt>Start</dt><dd>{{ row.start_label }}</dd></div>
     <div><dt>End</dt><dd>{{ row.end_label|default:"— (still working)" }}</dd></div>
     <div><dt>Duration</dt><dd>{{ row.worked_label }}{% if not rec.end_time %} <span class="muted">so far</span>{% endif %}</dd></div>

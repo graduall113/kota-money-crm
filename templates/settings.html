@@ -5,7 +5,6 @@
 <div class="settings-layout">
   <nav class="settings-nav">
     {% for key, label in sections %}<a href="?section={{ key }}" class="{% if section == key %}is-active{% endif %}">{{ label }}</a>{% endfor %}
-    {% if is_admin_view %}<a href="{% url 'document_settings' %}">Document Checklist →</a>{% endif %}
   </nav>
   <div class="panel"><div class="panel-body">
     {% if section == "account" %}
@@ -44,6 +43,12 @@
       <p>Manage the master document list from a dedicated screen.</p>
       <a class="btn-primary btn-inline" href="{% url 'document_settings' %}">Open Document Checklist settings →</a>
 
+    {% elif section == "holidays" %}
+      <h2 style="margin-top:0;">Holidays</h2>
+      <p class="help-text">Company holidays close the CRM for staff and block Start Day. The calendar itself (add, edit, activate, delete) lives on its own screen.</p>
+      <dl class="kv-grid"><div><dt>Current holiday</dt><dd>{{ hol_current }}</dd></div><div><dt>Upcoming</dt><dd>{{ hol_upcoming }}</dd></div></dl>
+      <p style="margin-top:16px;"><a class="btn-primary btn-inline" href="{% url 'holiday_list' %}">Open Holidays →</a></p>
+
     {% elif section == "security" %}
       <h2 style="margin-top:0;">Security</h2>
       <form method="post"><input type="hidden" name="section" value="security">{% csrf_token %}
@@ -51,8 +56,8 @@
         <button class="btn-primary btn-inline">Save</button></form>
 
     {% elif section == "attendance" %}
-      <h2 style="margin-top:0;">Attendance Verification</h2>
-      <p class="help-text">Layered checks on <strong>Start Day</strong>: office location, GPS accuracy, office network and a registered device. Every check is decided on the server. These add friction against everyday misuse; no browser-based method is tamper-proof, so problems are recorded as neutral events for you to review under <a class="link" href="{% url 'attendance_events' %}">Attendance Review</a>{% if att_open_events %} ({{ att_open_events }} open){% endif %}. <strong>End Day is never blocked</strong>.</p>
+      <h2 style="margin-top:0;">Attendance</h2>
+      <p class="help-text">Layered checks on <strong>Start Day</strong>: office location, GPS accuracy, office network and a registered device. Every check is decided on the server. These add friction against everyday misuse; no browser-based method is tamper-proof, so problems are recorded as neutral events for you to review under <a class="link" href="{% url 'attendance_events' %}">Attendance Review</a>{% if att_open_events %} ({{ att_open_events }} open){% endif %}. <strong>End Day is never blocked</strong>. Company holidays are managed under <a class="link" href="{% url 'holiday_list' %}">Holidays</a>.</p>
       {% for p in att_problems %}<div class="notice warn" style="margin:10px 0;padding:10px 14px;border:1px solid #f0c36d;background:#fff8e6;border-radius:8px;">{{ p }}</div>{% endfor %}
       <form method="post"><input type="hidden" name="section" value="attendance">{% csrf_token %}
         <h3>Office location</h3>

@@ -581,8 +581,15 @@ def apply_review(batch_id, finish=False):
             break
         with transaction.atomic():
             updates, creates = {}, []
+            orphaned_skips = 0
             for r in rows:
                 if r.decision == ImportReviewRow.DECISION_UPDATE:
+                    if r.existing_contact_id is None:
+                        # The contact this row was matched against has since been deleted, so
+                        # there is nothing to update. Skip it explicitly (counted below) rather
+                        # than crash or silently create a record the admin didn't choose.
+                        orphaned_skips += 1
+                        continue
                     updates.setdefault(r.existing_contact_id, (r.existing_contact, []))[1].append(r.data)
                 elif r.decision == ImportReviewRow.DECISION_NEW:
                     creates.append(_contact_from(r.data, batch, batch.assign_to_on_import_id))
@@ -595,7 +602,7 @@ def apply_review(batch_id, finish=False):
             _add_to_segment([c.pk for c, _ in updates.values()] + [c.pk for c in creates], batch)
             batch.updated_count += len(updates)
             batch.imported_count += len(creates)
-            batch.skipped_count += sum(1 for r in rows if r.decision == ImportReviewRow.DECISION_SKIP)
+            batch.skipped_count += sum(1 for r in rows if r.decision == ImportReviewRow.DECISION_SKIP) + orphaned_skips
             batch.save(update_fields=["updated_count", "imported_count", "skipped_count"])
             ImportReviewRow.objects.filter(pk__in=[r.pk for r in rows]).update(applied=True)
         done_ids.extend(r.pk for r in rows)

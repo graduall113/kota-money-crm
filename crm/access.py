@@ -112,3 +112,11 @@ def can_manage_segments(user):
 
 def visible_segment_contacts(user, segment):
     return visible_contacts(user).filter(segments=segment)
+
+
+# ---------------------------------------------------------------- holidays
+# The holiday calendar (create / edit / delete / activate / deactivate / list) is
+# Admin-only. The views enforce it with @admin_required (a real 403); this helper
+# exists for templates and tests so "who may manage holidays" is defined once.
+def can_manage_holidays(user):
+    return is_admin(user)

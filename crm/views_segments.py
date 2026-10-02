@@ -10,6 +10,7 @@ segment, and changing who's in it (including bulk "Add to Segment" and
 segment-wise assignment) is Admin-only — access.can_manage_segments().
 """
 from django.contrib import messages
+from django.db import transaction
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
@@ -74,10 +75,11 @@ def segment_delete(request, segment_id):
     segment = get_object_or_404(Segment, pk=segment_id)
     count = segment.contact_links.count()
     if request.method == "POST":
-        name = segment.name
-        segment.delete()  # CASCADE only removes ContactSegment rows — contacts themselves are untouched
-        services.log_audit(request.user, "segment_deleted", f"Segment '{name}' deleted ({count} membership(s) removed)",
-                           {"segment": name, "members": count}, "segment", "")
+        name, seg_pk = segment.name, segment.pk
+        with transaction.atomic():
+            segment.delete()  # CASCADE only removes ContactSegment rows — contacts themselves are untouched
+            services.log_audit(request.user, "segment_deleted", f"Segment '{name}' permanently deleted ({count} membership(s) removed)",
+                               {"segment": name, "segment_id": seg_pk, "members": count}, "segment", seg_pk)
         messages.success(request, f"Segment '{name}' was deleted. Its {count} contact(s) were not affected.")
         return redirect("segment_list")
     return render(request, "segments/segment_confirm_delete.html", {"segment": segment, "count": count, "active_page": "segments"})

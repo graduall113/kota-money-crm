@@ -1,9 +1,11 @@
 """Contacts module + shared bulk-action / export endpoints for leads and contacts."""
 import datetime
+import logging
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import Count
 from django.http import Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -139,9 +141,15 @@ def contact_delete(request, contact_id):
 
     name, pk = contact.name, contact.pk
     next_url = request.POST.get("next") or ""
-    contact.delete()
-    services.log_audit(request.user, "contact_deleted", f"Contact deleted: {name}", {}, "contact", pk)
-    messages.success(request, f"{name} was deleted.")
+    # Real DELETE. Lead.contact is SET_NULL, so a converted Lead survives (detached); the
+    # contact's own history rows / segment memberships go with it. Audit commits with it.
+    with transaction.atomic():
+        lead_ids = list(contact.leads.values_list("pk", flat=True))
+        contact.delete()
+        services.log_audit(request.user, "contact_deleted", f"Contact deleted permanently: {name}",
+                           {"contact_id": pk, "name": name, "import_batch_id": contact.import_batch_id,
+                            "leads_kept_detached": lead_ids}, "contact", pk)
+    messages.success(request, f"{name} was permanently deleted." + (" Their lead was kept." if lead_ids else ""))
     if next_url.startswith("/"):
         return redirect(next_url)
     return redirect("contacts")
@@ -205,10 +213,20 @@ def contact_edit(request, contact_id):
     if request.method == "POST":
         form = ContactForm(request.POST, instance=contact)
         if form.is_valid():
-            form.save()
+            linked_lead = None
+            with transaction.atomic():
+                form.save()
+                try:
+                    # Already-converted Contact: update its EXISTING Lead (same Lead ID) and re-sync
+                    # the SAME Google Sheet row. Never creates a Lead / a new Lead ID / a new row.
+                    with transaction.atomic():
+                        linked_lead = services.propagate_contact_to_lead(contact, form.changed_data, request.user)
+                except Exception:  # noqa: BLE001 - the Contact save must succeed regardless
+                    logging.getLogger("crm.n8n").exception("Could not update the lead linked to contact %s", contact.pk)
             services.log_activity(request.user, "edited", "Contact details updated", contact=contact)
             services.log_audit(request.user, "contact_edited", f"Contact edited: {contact.name}", {}, "contact", contact.pk)
-            messages.success(request, "Contact updated.")
+            messages.success(request, "Contact updated." if linked_lead is None else
+                             f"Contact updated. Linked lead {linked_lead.display_id} was updated and its automation sync queued.")
             return redirect("contact_detail", contact_id=contact.pk)
     else:
         form = ContactForm(instance=contact)
@@ -368,7 +386,11 @@ def bulk_action(request, model_name):
                 who = user_label(User.objects.filter(pk=row[field]).first()) if row[field] else "Unassigned"
                 from_names[who] = row["c"]
         to_names = [user_label(u) for u in User.objects.filter(pk__in=params.get("staff_ids", []))]
+        leads_linked = 0
+        if action == "delete" and model is Contact:  # these Leads are kept; only Lead.contact becomes empty
+            leads_linked = Lead.objects.filter(contact__in=qs).values("contact").distinct().count()
         return render(request, "bulk_confirm.html", {
+            "leads_linked": leads_linked,
             "model_name": model_name, "action": action, "count": count, "params": params,
             "verb": ACTION_LABELS[action], "from_names": from_names, "to_names": to_names,
             "destructive": action == "delete", "post": request.POST, "scope": scope,

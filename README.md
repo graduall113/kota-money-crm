@@ -127,3 +127,8 @@ Office geofence, GPS accuracy, office IP and trusted-device checks for Start Day
 ## Staff Attendance admin dashboard
 
 See [docs/staff_attendance.md](docs/staff_attendance.md). Apply the new migration with `python manage.py migrate`.
+
+## Google Sheet row colours (Approved / Rejected / Processing)
+
+Row colouring by Status is done by an Apps Script in `google_sheets_row_colour/` that n8n calls after
+the Sheets upsert; the row is found by Lead ID. No Django changes. Setup: `docs/n8n_sheet_row_colour_setup.md`.

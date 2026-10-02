@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Staff Activity · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Staff CRM Activity</h1>
+    <p>Live view of CRM use on staff phones. Admins only. A person is <strong>inactive</strong> after {{ threshold_minutes }} minutes without meaningful CRM activity (no lunch, no synced call).</p>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  This board only reports what the CRM page itself can verify: visible / hidden, heartbeat and real CRM interaction.
+  It cannot see which other phone app is open, and a locked screen, closed browser or lost network all look the same
+  (<em>no signal</em>), so they are shown as <em>Background</em> or <em>Session Disconnected</em>, never as a guess.
+  Calls count only once the Android app has synced them.
+</div>
+
+<div class="panel">
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr>
+        <th>Staff</th><th>CRM state</th><th>Staff status</th><th>Last CRM activity</th><th>Last heartbeat</th>
+        <th>Active CRM time today</th><th>Inactive today</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.name }}<div class="muted">{{ r.user.username }}</div></td>
+          <td><span class="act-state act-state-{{ r.d.state }}">{{ r.d.label }}</span>{% if r.d.reason_label %}<div class="muted">Reason: {{ r.d.reason_label }}</div>{% endif %}</td>
+          <td>{% if r.d.staff_status == 'inactive' %}<strong>Inactive</strong><div class="muted">CRM inactive for {{ r.d.inactive_minutes }} min</div>
+              {% elif r.d.staff_status == 'working' %}Working{% elif r.d.staff_status == 'lunch' %}Lunch Break{% elif r.d.staff_status == 'not_working' %}—{% else %}Unknown{% endif %}</td>
+          <td class="nowrap">{% if r.d.last_activity_at %}{{ r.d.last_activity_at|date:"h:i A" }}{% else %}—{% endif %}</td>
+          <td class="nowrap">{% if r.d.last_heartbeat_at %}{{ r.d.last_heartbeat_at|date:"h:i A" }}{% else %}—{% endif %}</td>
+          <td class="nowrap">{{ r.active_label }}</td>
+          <td class="nowrap">{{ r.inactive_total }}{% if r.periods %}<div class="muted">{{ r.periods|length }} period{{ r.periods|length|pluralize }}</div>{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="muted" style="padding:16px;">No active staff accounts.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:18px;">
+  <h2 style="padding:16px 22px 0;margin:0;font-size:16px;">Inactivity periods (last 7 days)</h2>
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>Staff</th><th>Date</th><th>Last CRM activity</th><th>Inactive from</th><th>Until</th><th>Length</th><th>Covered by calls</th><th>State when recorded</th><th>Ended by</th></tr></thead>
+      <tbody>
+      {% for p in recent %}
+        <tr>
+          <td>{{ p.user.get_full_name|default:p.user.username }}</td>
+          <td class="nowrap">{{ p.work_date|date:"d/m/Y" }}</td>
+          <td class="nowrap">{{ p.last_activity_at|date:"h:i A" }}</td>
+          <td class="nowrap">{{ p.started_at|date:"h:i A" }}</td>
+          <td class="nowrap">{% if p.ended_at %}{{ p.ended_at|date:"h:i A" }}{% else %}<em>ongoing</em>{% endif %}</td>
+          <td class="nowrap">{% if p.ended_at %}{{ p.ended_at|timeuntil:p.started_at }}{% else %}{{ now|timeuntil:p.started_at }}{% endif %}</td>
+          <td class="nowrap">{% if p.call_overlap_seconds %}{{ p.call_overlap_seconds }} s{% else %}—{% endif %}</td>
+          <td>{{ p.session_state|default:"—" }}{% if p.visibility_state %} · {{ p.visibility_state }}{% endif %}</td>
+          <td>{{ p.get_ended_by_display|default:"—" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="9" class="muted" style="padding:16px;">No inactivity periods recorded.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

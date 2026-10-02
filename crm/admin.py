@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Attendance, AttendanceCorrection, AttendanceEvent, CallDevice, CallRecord, Lead, PrivilegedNumber, StaffProfile, TrustedDevice
+from .models import Attendance, AttendanceCorrection, AttendanceEvent, CallDevice, CallRecord, Lead, LeadSyncEvent, PrivilegedNumber, StaffProfile, TrustedDevice
 
 
 @admin.register(StaffProfile)
@@ -17,6 +17,18 @@ class LeadAdmin(admin.ModelAdmin):
     search_fields = ("customer_name", "contact_number")
     # Lead ID is derived from the immutable primary key; show it, never edit it.
     readonly_fields = ("display_id",)
+
+
+@admin.register(LeadSyncEvent)
+class LeadSyncEventAdmin(admin.ModelAdmin):
+    """Read-only view of the Lead -> n8n -> Google Sheets sync queue (status, attempts, last error)."""
+    list_display = ("lead_reference_id", "status", "reasons", "attempts", "next_attempt_at", "http_status", "created_at", "finished_at")
+    list_filter = ("status",)
+    search_fields = ("lead_reference_id", "idempotency_key", "last_error")
+    readonly_fields = [f.name for f in LeadSyncEvent._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(CallDevice)

@@ -65,15 +65,14 @@
 {% if batch.status == 'completed' %}
 <div class="panel"><div class="panel-header"><h2>Undo this import</h2></div><div class="panel-body">
   {% if batch.undone_at %}
-    <p class="muted">This import was undone on {{ batch.undone_at|date:"d/m/Y, H:i" }}{% if batch.undone_by %} by {{ batch.undone_by.get_full_name|default:batch.undone_by.username }}{% endif %}. {{ removed_count }} contact{{ removed_count|pluralize }} {{ removed_count|pluralize:"is,are" }} removed and can be brought back.</p>
-    <form method="post" action="{% url 'import_restore' batch.pk %}" class="js-confirm" style="display:inline;"
-          data-confirm-title="Restore this import?" data-confirm-message="Bring back the {{ removed_count }} contact{{ removed_count|pluralize }} removed from import {{ batch.code }}?" data-confirm-label="Restore">
-      {% csrf_token %}<button type="submit" class="btn-secondary btn-sm">Restore {{ removed_count }} contact{{ removed_count|pluralize }}</button>
-    </form>
+    <p class="muted">This import was undone on {{ batch.undone_at|date:"d/m/Y, H:i" }}{% if batch.undone_by %} by {{ batch.undone_by.get_full_name|default:batch.undone_by.username }}{% endif %}.
+      {% if batch.undo_selected_count %}{{ batch.undo_deleted_count }} of {{ batch.undo_selected_count }} contact{{ batch.undo_selected_count|pluralize }} {{ batch.undo_deleted_count|pluralize:"was,were" }} permanently deleted{% if batch.undo_protected_count %}; {{ batch.undo_protected_count }} could not be deleted{% endif %}{% if batch.undo_leads_detached %}; {{ batch.undo_leads_detached }} converted lead{{ batch.undo_leads_detached|pluralize }} kept{% endif %}.
+      {% elif legacy_hidden_count %}{{ legacy_hidden_count }} contact{{ legacy_hidden_count|pluralize }} {{ legacy_hidden_count|pluralize:"is,are" }} hidden from an older-style undo (not deleted from the database).{% endif %}
+      This cannot be reversed.</p>
   {% elif removable_count %}
-    <p class="help-text">Removes the {{ removable_count }} contact{{ removable_count|pluralize }} this import created. Contacts that were merely updated (because they already existed) are never touched. This can be undone with Restore.</p>
+    <p class="help-text">Permanently deletes the {{ removable_count }} contact{{ removable_count|pluralize }} this import created. Contacts that were merely updated or matched (because they already existed) are never touched.{% if removable_with_leads %} {{ removable_with_leads }} of them {{ removable_with_leads|pluralize:"has,have" }} been converted to a lead; those leads are kept.{% endif %} This cannot be undone.</p>
     <form method="post" action="{% url 'import_undo' batch.pk %}" class="js-confirm" style="display:inline;"
-          data-confirm-title="Undo this import?" data-confirm-message="Remove the {{ removable_count }} contact{{ removable_count|pluralize }} imported by {{ batch.code }}? You can restore them afterwards from this page." data-confirm-label="Undo Import">
+          data-confirm-title="Undo Import {{ batch.code }}?" data-confirm-message="This will permanently delete {{ removable_count }} contact{{ removable_count|pluralize }} created by this import.{% if removable_with_leads %} {{ removable_with_leads }} converted lead{{ removable_with_leads|pluralize }} will be kept.{% endif %} This action cannot be undone." data-confirm-label="Delete Permanently">
       {% csrf_token %}<button type="submit" class="link action-danger" style="border:1px solid var(--border); border-radius:var(--radius-sm); padding:7px 14px; background:none; cursor:pointer;">Undo Import ({{ removable_count }})</button>
     </form>
   {% else %}

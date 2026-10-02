@@ -14,6 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from . import holidays as holiday_rules
 from .access import is_admin
 from .models import Attendance
 
@@ -48,6 +49,19 @@ class OutsideWorkingHours(AttendanceError):
     message = "Working hours are over for today, so the day can't be started."
 
 
+class HolidayBlocked(AttendanceError):
+    """Start Day refused because today is an ACTIVE company holiday."""
+
+    message = "Today is a holiday. Attendance can't be started."
+
+    def __init__(self, holiday=None):
+        self.holiday = holiday
+        if holiday is None:
+            super().__init__()
+        else:
+            super().__init__(f"Today is a holiday: {holiday.name} ({holiday_label(holiday)}). Attendance can't be started.")
+
+
 # ------------------------------------------------------------------ config
 def _now():
     """Single clock for the whole module (tests patch this)."""
@@ -76,12 +90,61 @@ def business_date(now=None):
 
 
 def compute_status(duration):
+    """
+    Stored status of a FINISHED day, from actual worked time only (the one place thresholds are applied).
+    full_day -> PRESENT, half_day -> HALF DAY, short_day -> ABSENT (see display_status()).
+    """
     minutes = duration.total_seconds() / 60
     if minutes >= settings.ATTENDANCE_FULL_DAY_MIN_MINUTES:
         return Attendance.STATUS_FULL_DAY
     if minutes >= settings.ATTENDANCE_HALF_DAY_MIN_MINUTES:
         return Attendance.STATUS_HALF_DAY
     return Attendance.STATUS_SHORT_DAY
+
+
+# ------------------------------------------------------------------ the five display statuses
+PRESENT = "PRESENT"
+HALF_DAY = "HALF DAY"
+ABSENT = "ABSENT"
+SUNDAY = "SUNDAY"
+HOLIDAY = "HOLIDAY"
+NOT_STARTED_YET = "NOT STARTED"   # only for today (before working hours end) / future: nothing to judge yet
+BADGE_CLASS = {PRESENT: "present", HALF_DAY: "half", ABSENT: "absent", SUNDAY: "sunday",
+               HOLIDAY: "holiday", NOT_STARTED_YET: "pending"}
+_STORED_TO_DISPLAY = {
+    Attendance.STATUS_FULL_DAY: PRESENT,
+    Attendance.STATUS_HALF_DAY: HALF_DAY,
+    Attendance.STATUS_SHORT_DAY: ABSENT,
+    Attendance.STATUS_IN_PROGRESS: PRESENT,   # day started and still running
+}
+
+
+def is_sunday(day):
+    off = settings.ATTENDANCE_WEEKLY_OFF_WEEKDAY      # None disables the weekly off (used by legacy test fixtures)
+    return off is not None and day.weekday() == off
+
+
+def display_status(day, rec=None, holiday=None, today=None, now=None):
+    """
+    THE authoritative day status (templates only display this). Order:
+      1 Sunday -> SUNDAY   2 active holiday (and no Start Day) -> HOLIDAY   3 no Start Day -> ABSENT
+      4 started: classify the actual worked duration -> PRESENT / HALF DAY (ABSENT if below half-day minimum)
+    `holiday` is the ACTIVE Holiday covering `day` (or None); `rec` the Attendance row (or None).
+    A day that has not ended yet (today, no record, before working hours end) is NOT_STARTED_YET, not Absent.
+    """
+    if is_sunday(day):
+        return SUNDAY
+    if holiday is not None and rec is None:
+        return HOLIDAY            # nobody started: Holiday, never Absent. (Work done before a holiday was declared still counts.)
+    if rec is None:
+        now = now or _now()
+        today = today or business_date(now)
+        if day > today or (day == today and now < work_end_at(day)):
+            return NOT_STARTED_YET
+        return ABSENT
+    if rec.end_time is None:
+        return PRESENT
+    return _STORED_TO_DISPLAY.get(rec.attendance_status) or _STORED_TO_DISPLAY[compute_status(rec.worked_duration)]
 
 
 # ------------------------------------------------------------------ display helpers
@@ -92,6 +155,18 @@ def fmt_clock(dt):
 def fmt_duration(td):
     total = max(int(td.total_seconds()), 0)
     return f"{total // 3600:02d}h {(total % 3600) // 60:02d}m"
+
+
+def holiday_label(holiday):
+    """'20/10/2026' for a single day, '20/10/2026 – 27/10/2026' for a range."""
+    if holiday.is_single_day:
+        return f"{holiday.start_date:%d/%m/%Y}"
+    return f"{holiday.start_date:%d/%m/%Y} – {holiday.end_date:%d/%m/%Y}"
+
+
+def todays_holiday(now=None):
+    """The ACTIVE holiday covering today's business date, or None."""
+    return holiday_rules.holiday_for(business_date(now))
 
 
 # ------------------------------------------------------------------ who is subject to attendance
@@ -166,6 +241,12 @@ def start_day(user, evidence=None, override_by=None, override_reason=""):
         existing = Attendance.objects.filter(user=user, work_date=work_date).first()
         if existing:
             raise AlreadyEnded() if existing.end_time else AlreadyStarted()
+        # THE holiday gate. Every way of starting a day (staff Start Day, direct POST, admin
+        # override) ends up here, so nothing the browser sends can get around it. It sits inside
+        # the transaction and only guards *creating* a record: an existing record is never touched.
+        holiday = holiday_rules.holiday_for(work_date)
+        if holiday is not None:
+            raise HolidayBlocked(holiday)
         try:
             with transaction.atomic():  # savepoint, so an IntegrityError doesn't poison the outer txn
                 return Attendance.objects.create(user=user, work_date=work_date, start_time=now, **extra)
@@ -246,6 +327,12 @@ def describe(state, record):
         "work_end_label": fmt_clock(work_end_at(today)),
         "can_start": state == STATE_NOT_STARTED and now < work_end_at(today),
     }
+    holiday = holiday_rules.holiday_for(today)
+    if holiday is not None:
+        info["holiday"] = holiday
+        info["holiday_label"] = holiday_label(holiday)
+        info["is_holiday"] = True
+        info["can_start"] = False  # display only - start_day() enforces it independently
     if record:
         info["started_label"] = fmt_clock(record.start_time)
         if record.end_time is None:
@@ -256,6 +343,6 @@ def describe(state, record):
         else:
             info["ended_label"] = fmt_clock(record.end_time)
             info["duration_label"] = fmt_duration(record.worked_duration)
-            info["status_label"] = record.get_attendance_status_display()
+            info["status_label"] = display_status(record.work_date, record, holiday_rules.holiday_for(record.work_date))
             info["auto_ended"] = record.auto_ended
     return info

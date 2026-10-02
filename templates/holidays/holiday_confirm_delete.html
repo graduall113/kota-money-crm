@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Delete Holiday · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Delete “{{ holiday.name }}”?</h1></div>
+<div class="panel confirm-box danger"><div class="panel-body">
+  <p class="big">
+    This permanently removes the holiday
+    ({% if holiday.is_single_day %}{{ holiday.start_date|date:"d/m/Y" }}{% else %}{{ holiday.start_date|date:"d/m/Y" }} – {{ holiday.end_date|date:"d/m/Y" }}, {{ holiday.duration_days }} days{% endif %}).
+    {% if status == "past" %}It is a past holiday, so deleting it removes it from the history.{% elif status == "current" %}<strong>It is happening today.</strong>{% endif %}
+  </p>
+  <p class="muted">If you only want it to stop counting, use <strong>Deactivate</strong> on the Holidays page instead — that keeps it on file.</p>
+  <form method="post">{% csrf_token %}
+    <button class="btn-danger">Yes, delete this holiday</button>
+    <a class="link" style="margin-left:14px;" href="{% url 'holiday_list' %}">Cancel</a>
+  </form>
+</div></div>
+{% endblock %}

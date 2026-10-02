@@ -3,9 +3,9 @@
 {% block content %}
 <div class="page-header"><h1>Delete "{{ segment.name }}"?</h1></div>
 <div class="panel confirm-box danger"><div class="panel-body">
-  <p class="big">This removes the segment and its {{ count }} membership{{ count|pluralize }}. <strong>Contacts themselves are never deleted.</strong></p>
+  <p class="big">This permanently removes the segment from the database, along with its {{ count }} membership{{ count|pluralize }}. <strong>Contacts themselves are never deleted.</strong></p>
   <form method="post">{% csrf_token %}
-    <button class="btn-danger">Yes, delete this segment</button>
+    <button class="btn-danger">Delete Permanently</button>
     <a class="link" style="margin-left:14px;" href="{% url 'segment_detail' segment.pk %}">Cancel</a>
   </form>
 </div></div>

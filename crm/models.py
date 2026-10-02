@@ -207,6 +207,9 @@ class Lead(models.Model):
     )
     n8n_last_sync = models.DateTimeField(null=True, blank=True)
     n8n_error = models.TextField(blank=True)
+    # SHA-256 of the synced content of the last payload n8n ACCEPTED. Lets the
+    # sync queue skip an automatic re-send when nothing synced has changed.
+    n8n_payload_hash = models.CharField(max_length=64, blank=True, default="")
 
     # ---------------------------------------------------------------
     # Added in the role-based-access / import upgrade
@@ -303,6 +306,66 @@ class Lead(models.Model):
 
 
 # =========================================================
+# LEAD -> n8n -> GOOGLE SHEETS SYNC QUEUE
+# =========================================================
+
+
+class LeadSyncEvent(models.Model):
+    """
+    One row = "this Lead needs to be (re)sent to n8n so the Google Sheet row
+    for its Lead ID is inserted or updated". The Sheet is only a copy; the
+    Django database stays the source of truth.
+
+    The payload is NOT stored: it is rebuilt from the live Lead when the event
+    is processed, so a retry always sends the newest data (never stale data).
+
+    Guarantees enforced by the two partial unique constraints below:
+      * at most ONE pending event per Lead   -> many quick edits coalesce into one send
+      * at most ONE processing event per Lead -> two sends for the same Lead can never
+        run in parallel (which is what makes a Sheets "find row, else append" race
+        into two rows).
+    """
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    SUCCESS = "success"
+    FAILED = "failed"      # gave up after max attempts (a later edit starts a fresh event)
+    SKIPPED = "skipped"    # nothing synced had changed since the last accepted send
+    STATUS_CHOICES = [
+        (PENDING, "Pending"), (PROCESSING, "Processing"), (SUCCESS, "Success"),
+        (FAILED, "Failed"), (SKIPPED, "Skipped"),
+    ]
+
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="sync_events")
+    lead_reference_id = models.CharField(max_length=30, help_text="Lead ID at the time, e.g. KM-1050.")
+    idempotency_key = models.CharField(max_length=60, help_text="lead-<Lead ID>; identical for every event of a Lead.")
+    event = models.CharField(max_length=30, default="lead_upsert")
+    reasons = models.CharField(max_length=300, blank=True, help_text="Comma-separated triggers merged into this event.")
+    force = models.BooleanField(default=False, help_text="Send even if nothing synced has changed.")
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=PENDING, db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    http_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [models.Index(fields=["status", "next_attempt_at"], name="leadsync_due_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lead"], condition=models.Q(status="pending"), name="uniq_pending_sync_per_lead"),
+            models.UniqueConstraint(
+                fields=["lead"], condition=models.Q(status="processing"), name="uniq_processing_sync_per_lead"),
+        ]
+
+    def __str__(self):
+        return f"{self.lead_reference_id} {self.event} [{self.status}]"
+
+
+# =========================================================
 # SETTINGS (admin-editable, replaces editing source code)
 # =========================================================
 
@@ -393,15 +456,21 @@ class ImportBatch(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
-    # Undo / restore: when an admin undoes a completed import, every contact
-    # this batch actually *created* (import_batch=this batch — contacts that
-    # merely got updated because they already existed keep their original
-    # import_batch and are never touched) is soft-deleted rather than
-    # removed, so "Restore" can bring them back exactly as they were.
+    # Undo: when an admin undoes a completed import, every contact this batch
+    # actually *created* (import_batch=this batch — contacts that merely got
+    # updated because they already existed keep their original import_batch and
+    # are never touched) is PERMANENTLY DELETED from the database. This batch
+    # row is kept as history, with the outcome recorded below. (Imports undone
+    # before this change were soft-deleted via Contact.is_deleted; those legacy
+    # rows are left as they were.)
     undone_at = models.DateTimeField(null=True, blank=True)
     undone_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+    undo_selected_count = models.PositiveIntegerField(default=0)   # contacts this batch had created
+    undo_deleted_count = models.PositiveIntegerField(default=0)    # contacts physically deleted
+    undo_protected_count = models.PositiveIntegerField(default=0)  # contacts that had to be kept
+    undo_leads_detached = models.PositiveIntegerField(default=0)   # Leads kept, Lead.contact set to NULL
 
     class Meta:
         ordering = ["-created_at"]
@@ -467,7 +536,10 @@ class ImportReviewRow(models.Model):
 
     batch = models.ForeignKey(ImportBatch, on_delete=models.CASCADE, related_name="review_rows")
     row_number = models.PositiveIntegerField()
-    existing_contact = models.ForeignKey("Contact", on_delete=models.CASCADE, related_name="+")
+    # SET_NULL (was CASCADE): if the contact this duplicate was matched against is
+    # deleted, the parked row — and the spreadsheet data it holds — must survive
+    # instead of vanishing silently. importer.apply_review() handles a NULL target.
+    existing_contact = models.ForeignKey("Contact", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     data = models.JSONField(default=dict)
     decision = models.CharField(max_length=10, choices=DECISION_CHOICES, blank=True, default="")
     applied = models.BooleanField(default=False)
@@ -538,11 +610,11 @@ class Contact(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
-    # Soft delete — currently only ever set by "Undo Import" (see
-    # ImportBatch.undone_at). A soft-deleted contact is excluded from
-    # access.visible_contacts() (so it disappears from every list, export,
-    # segment and count) but nothing about it is actually removed, so
-    # "Restore" on the import can bring it back untouched.
+    # LEGACY soft delete. Older versions of "Undo Import" set these instead of
+    # deleting. New deletes and new Undo Imports remove the row for real and never
+    # set them. They stay so already-soft-deleted production rows remain hidden
+    # (access.visible_contacts still excludes them) until an admin deliberately
+    # purges them with `manage.py purge_soft_deleted_contacts --confirm`.
     is_deleted = models.BooleanField(default=False, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
@@ -1285,3 +1357,220 @@ class AttendanceCorrection(models.Model):
 
     def __str__(self):
         return f"{self.staff_name} · {self.work_date} · {self.get_field_display()}"
+
+
+# ------------------------------------------------------------------ holidays
+class HolidayQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(is_active=True)
+
+    def covering(self, day):
+        """Holidays whose period includes `day` (both ends inclusive)."""
+        return self.filter(start_date__lte=day, end_date__gte=day)
+
+    def overlapping(self, start, end):
+        """Holidays that share at least one date with start..end (inclusive)."""
+        return self.filter(start_date__lte=end, end_date__gte=start)
+
+
+class Holiday(models.Model):
+    """
+    A company holiday: one day or a run of consecutive days, stored as an
+    inclusive start_date..end_date range. A single-day holiday has
+    start_date == end_date; a week / month / multi-day holiday is simply a
+    longer range, so every date between the two ends is a holiday.
+
+    Only admins manage these (crm.views_holidays, admin_required). Inactive
+    holidays are kept for reference but never count as a holiday.
+    """
+
+    name = models.CharField(max_length=150)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    reason = models.CharField(max_length=500, blank=True)
+    is_active = models.BooleanField(default=True)
+    # SET_NULL: the holiday calendar must survive an admin account being removed.
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = HolidayQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["start_date", "end_date", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_date__gte=models.F("start_date")),
+                name="holiday_start_lte_end",
+                violation_error_message="The start date cannot be after the end date.",
+            ),
+            # The unique constraint also creates the index the overlap lookups use.
+            models.UniqueConstraint(
+                fields=["start_date", "end_date"],
+                name="uniq_holiday_period",
+                violation_error_message="A holiday for exactly these dates already exists. Edit that one (or re-activate it) instead of adding a duplicate.",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.start_date:%d/%m/%Y} - {self.end_date:%d/%m/%Y})"
+
+    @property
+    def duration_days(self):
+        return (self.end_date - self.start_date).days + 1
+
+    @property
+    def is_single_day(self):
+        return self.start_date == self.end_date
+
+    def covers(self, day):
+        return self.start_date <= day <= self.end_date
+
+    def status_on(self, day):
+        """'upcoming' | 'current' | 'past' relative to `day` (ignores is_active)."""
+        if self.end_date < day:
+            return "past"
+        if self.start_date > day:
+            return "upcoming"
+        return "current"
+
+
+# ------------------------------------------------------------------ staff CRM activity monitoring
+class StaffPresence(models.Model):
+    """
+    One row per staff member: the latest facts the SERVER has received from that
+    person's mobile browser. Every timestamp is the server clock (never the phone's).
+
+    last_heartbeat_at   the browser/session is talking to the server (proves NOTHING about work)
+    last_activity_at    the last MEANINGFUL CRM interaction (tap, typing, scroll, navigation ...)
+    reported_visibility what the page last said about itself: "visible" / "hidden"
+    """
+
+    VISIBLE = "visible"
+    HIDDEN = "hidden"
+    VISIBILITY_CHOICES = [(VISIBLE, "Visible"), (HIDDEN, "Hidden")]
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="presence")
+    work_date = models.DateField(null=True, blank=True, help_text="Business date the counters below belong to.")
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    reported_visibility = models.CharField(max_length=7, choices=VISIBILITY_CHOICES, default=VISIBLE)
+    visibility_changed_at = models.DateTimeField(null=True, blank=True)
+    session_hash = models.CharField(max_length=16, blank=True, help_text="Short hash of the session key (never the key).")
+    # Seconds of verified CRM interaction today. Heartbeats, background polling and hidden time add nothing.
+    active_seconds = models.PositiveIntegerField(default=0)
+    credited_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "staff presence"
+
+    def __str__(self):
+        return f"{user_label(self.user)} · heartbeat {self.last_heartbeat_at} · activity {self.last_activity_at}"
+
+
+class StaffInactivityPeriod(models.Model):
+    """
+    "CRM inactive for N minutes." One row per stretch with no meaningful CRM activity
+    (and no lunch / call covering it). Stored factually: it does NOT say what the person did.
+    """
+
+    END_ACTIVITY = "activity"
+    END_LUNCH = "lunch"
+    END_DAY = "day_ended"
+    END_CALL = "call"
+    END_LIVE_CALL = "live_call"
+    END_CHOICES = [(END_ACTIVITY, "CRM activity resumed"), (END_LUNCH, "Lunch started"),
+                   (END_DAY, "Day ended"), (END_CALL, "Covered by a synced call"),
+                   (END_LIVE_CALL, "Assigned customer call")]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="inactivity_periods")
+    work_date = models.DateField(db_index=True)
+    last_activity_at = models.DateTimeField(help_text="Last meaningful CRM activity before the period.")
+    started_at = models.DateTimeField(help_text="last_activity_at + the inactivity threshold.")
+    ended_at = models.DateTimeField(null=True, blank=True)
+    ended_by = models.CharField(max_length=10, choices=END_CHOICES, blank=True)
+    session_state = models.CharField(max_length=20, blank=True, help_text="CRM state when the period was recorded.")
+    visibility_state = models.CharField(max_length=7, blank=True)
+    call_overlap_seconds = models.PositiveIntegerField(default=0, help_text="Seconds covered by synced CallRecords.")
+    device_notified_at = models.DateTimeField(null=True, blank=True, help_text="When the Android app acknowledged showing the 15-minute warning for this period (one warning per period).")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [models.Index(fields=["user", "started_at"], name="inact_user_started_idx")]
+        constraints = [
+            # At most one OPEN period per staff member (concurrent heartbeats cannot double-record).
+            models.UniqueConstraint(fields=["user"], condition=models.Q(ended_at__isnull=True), name="uniq_open_inactivity_per_user"),
+            # The same stretch can never be stored twice.
+            models.UniqueConstraint(fields=["user", "started_at"], name="uniq_inactivity_user_started"),
+        ]
+
+    def __str__(self):
+        return f"{user_label(self.user)} inactive from {self.started_at}"
+
+    @property
+    def is_open(self):
+        return self.ended_at is None
+
+
+class LunchBreak(models.Model):
+    """A lunch break inside a working day. At most one per staff member per business day."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="lunch_breaks")
+    work_date = models.DateField(db_index=True)
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    auto_ended = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-started_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "work_date"], name="uniq_lunch_user_work_date"),
+            models.CheckConstraint(check=models.Q(ended_at__isnull=True) | models.Q(ended_at__gte=models.F("started_at")),
+                                   name="lunch_end_not_before_start"),
+        ]
+
+    def __str__(self):
+        return f"{user_label(self.user)} lunch {self.started_at}"
+
+
+class StaffLiveCallActivity(models.Model):
+    """
+    TEMPORARY live-call state for Staff Activity only ("is this staff member on a call with a customer
+    assigned to them right now?"). NOT call history: it never creates/changes a CallRecord, never touches
+    lead/contact status and is independent of the Android CallLog sync.
+
+    No phone number is stored - only whether the number qualified (and which lead/contact it matched).
+    All timestamps are the server clock. A session that stops being refreshed goes stale after
+    settings.ACTIVITY_LIVE_CALL_TTL_SECONDS and then stops counting.
+    """
+
+    STARTED, ACTIVE, ENDED = "started", "active", "ended"
+    STATE_CHOICES = [(STARTED, "Started / ringing"), (ACTIVE, "Connected"), (ENDED, "Ended")]
+
+    staff = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_call_sessions")
+    device = models.ForeignKey("CallDevice", on_delete=models.CASCADE, related_name="live_call_sessions")
+    session_id = models.CharField(max_length=64)
+    call_state = models.CharField(max_length=8, choices=STATE_CHOICES, default=STARTED)
+    is_qualifying = models.BooleanField(default=False, help_text="Number belongs to a lead/contact assigned to THIS staff member (decided server-side).")
+    matched_lead = models.ForeignKey("Lead", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    matched_contact = models.ForeignKey("Contact", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    started_at = models.DateTimeField()
+    connected_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["staff", "ended_at", "last_seen_at"], name="livecall_staff_open_idx"),
+        ]
+        constraints = [
+            # A retried / duplicated event can never create a second row for the same call.
+            models.UniqueConstraint(fields=["staff", "session_id"], name="uniq_livecall_staff_session"),
+        ]
+
+    def __str__(self):
+        return f"{user_label(self.staff)} live call {self.session_id} ({self.call_state})"

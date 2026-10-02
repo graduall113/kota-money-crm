@@ -21,6 +21,8 @@ ALLOWED_URL_NAMES = {
     "password_reset", "password_reset_done", "password_reset_confirm", "password_reset_complete",
     "attendance", "attendance_start", "attendance_end", "attendance_device_enroll",
     "profile", "settings_page",
+    # Heartbeat endpoint: reachable on any page (it answers "not working" itself when no day is open).
+    "activity_signal",
 }
 # Not session/CRM pages: token- or key-authenticated APIs (n8n, Android app),
 # and Django's own admin site (governed by is_staff/admin, never locked here).
@@ -54,6 +56,8 @@ class AttendanceRequiredMiddleware:
     def _deny(request, state):
         if state == attendance.STATE_ENDED:
             msg = "Your day has ended. CRM access is locked until you start your day tomorrow."
+        elif attendance.todays_holiday() is not None:
+            msg = "Today is a holiday. The CRM is closed for staff today and attendance can't be started."
         else:
             msg = "Start your day to access the CRM."
         if request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in request.headers.get("accept", ""):

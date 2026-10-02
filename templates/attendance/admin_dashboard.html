@@ -10,16 +10,22 @@
   <a class="btn-secondary btn-sm" href="{% url 'staff_attendance_export' %}?{{ export_qs }}{% if export_qs %}&{% endif %}format=xlsx" style="text-decoration:none;">Export Excel</a>
 </div>
 
+{% if holiday %}<div class="alert alert-info">{{ f.date|date:"d/m/Y" }} is a company holiday: <strong>{{ holiday.name }}</strong> ({% if holiday.is_single_day %}single day{% else %}{{ holiday.start_date|date:"d/m/Y" }} – {{ holiday.end_date|date:"d/m/Y" }}{% endif %}). Every staff member is shown as <strong>HOLIDAY</strong> (never Absent) and can't start attendance. Anyone who already worked keeps their record, flagged “Worked — Holiday Declared Later”.</div>{% endif %}
+{% if f.date.weekday == 6 and not f.is_range %}<div class="alert alert-info">{{ f.date|date:"d/m/Y" }} is a Sunday (weekly off). Everyone is shown as <strong>SUNDAY</strong>, never Absent.</div>{% endif %}
+
 {# ---- 1. Today cards (always "today", whatever the table filters below are) ---- #}
 {% with d=summary.date|date:"d/m/Y" %}
 <div class="sa-cards">
   <a class="stat-card sa-card" href="{% url 'staff_attendance' %}"><div class="stat-label">Total Staff</div><div class="stat-value">{{ summary.total }}</div></a>
   <a class="stat-card sa-card" href="{% url 'staff_attendance' %}"><div class="stat-label">Started</div><div class="stat-value">{{ summary.started }}</div></a>
-  <a class="stat-card sa-card" href="?date={{ d }}&status=not_started"><div class="stat-label">Not Started</div><div class="stat-value">{{ summary.not_started }}</div></a>
   <a class="stat-card sa-card" href="?date={{ d }}&status=working"><div class="stat-label">Currently Working</div><div class="stat-value">{{ summary.working }}</div></a>
   <a class="stat-card sa-card" href="?date={{ d }}&status=ended"><div class="stat-label">Ended</div><div class="stat-value">{{ summary.ended }}</div></a>
-  <a class="stat-card sa-card" href="?date={{ d }}&status=full_day"><div class="stat-label">Full Day</div><div class="stat-value">{{ summary.full_day }}</div></a>
-  <a class="stat-card sa-card" href="?date={{ d }}&status=half_day"><div class="stat-label">Half Day</div><div class="stat-value">{{ summary.half_day }}</div></a>
+  <a class="stat-card sa-card sa-card-present" href="?date={{ d }}&status=present"><div class="stat-label">Present</div><div class="stat-value">{{ summary.present }}</div></a>
+  <a class="stat-card sa-card sa-card-half" href="?date={{ d }}&status=half_day"><div class="stat-label">Half Day</div><div class="stat-value">{{ summary.half_day }}</div></a>
+  <a class="stat-card sa-card sa-card-absent" href="?date={{ d }}&status=absent"><div class="stat-label">Absent</div><div class="stat-value">{{ summary.absent }}</div></a>
+  {% if summary.is_sunday %}<a class="stat-card sa-card sa-card-sunday" href="?date={{ d }}&status=sunday"><div class="stat-label">Sunday</div><div class="stat-value">{{ summary.sunday }}</div></a>{% endif %}
+  {% if summary.holiday and not summary.is_sunday %}<a class="stat-card sa-card sa-card-holiday" href="?date={{ d }}&status=holiday"><div class="stat-label">On Holiday</div><div class="stat-value">{{ summary.on_holiday }}</div></a>{% endif %}
+  {% if summary.not_started %}<a class="stat-card sa-card" href="?date={{ d }}&status=not_started"><div class="stat-label">Not Started Yet</div><div class="stat-value">{{ summary.not_started }}</div></a>{% endif %}
   <a class="stat-card sa-card" href="?date={{ d }}&status=auto_ended"><div class="stat-label">Auto Ended</div><div class="stat-value">{{ summary.auto_ended }}</div></a>
   <a class="stat-card sa-card {% if summary.anomalies %}sa-card-warn{% endif %}" href="?date={{ d }}&anomaly=yes"><div class="stat-label">Verification Anomalies</div><div class="stat-value">{{ summary.anomalies }}</div></a>
 </div>
@@ -57,9 +63,7 @@
     </div>
   </form>
 
-  {% if f.is_range and f.status == 'not_started' or f.is_range and f.status == 'absent' %}
-  <p class="muted" style="padding:12px 22px;">“Not Started” and “Absent” describe a single day. Clear the “To” date to see them.</p>
-  {% endif %}
+  {% if f.is_range %}<p class="muted" style="padding:12px 22px;">Showing every day in the range for every staff member (max 93 days, up to today). Days with no Start Day appear as ABSENT, Sundays as SUNDAY and holidays as HOLIDAY.</p>{% endif %}
 
   {# ---- 2. Table ---- #}
   <div class="table-scroll">
@@ -70,13 +74,13 @@
       </tr></thead>
       <tbody>
       {% for r in rows %}
-        <tr>
+        <tr class="{{ r.row_class }}">
           <td>{{ r.staff_name }}<div class="muted">{{ r.user.username }}{% if r.staff_code %} · {{ r.staff_code }}{% endif %}</div></td>
           <td class="nowrap">{{ r.work_date|date:"d/m/Y" }}</td>
           <td class="nowrap">{{ r.start_label|default:"—" }}</td>
           <td class="nowrap">{{ r.end_label|default:"—" }}</td>
           <td class="nowrap">{{ r.worked_label|default:"—" }}{% if r.rec and not r.rec.end_time %} <span class="muted">so far</span>{% endif %}</td>
-          <td><span class="badge {{ r.badge }}">{{ r.status_label }}</span></td>
+          <td><span class="badge att-status-badge {{ r.badge }}">{{ r.status_label }}</span>{% if r.status == 'holiday' %}<div class="muted">{{ r.holiday_name }}{% if not r.holiday.is_single_day %}<br>{{ r.holiday_period }}{% endif %}</div>{% elif r.worked_on_holiday %}<div><span class="badge info" title="{{ r.holiday_name }} · {{ r.holiday_period }}">{{ r.holiday_note }}</span></div><div class="muted">{{ r.holiday_name }}</div>{% endif %}</td>
           <td>{% if r.rec %}<span class="badge {% if r.rec.start_verification == 'verified' %}ok{% elif r.rec.start_verification == 'admin_override' %}warn{% endif %}">{{ r.verification_label }}</span>{% else %}—{% endif %}</td>
           <td>{{ r.device_label|default:"—" }}</td>
           <td class="nowrap">{{ r.ip|default:"—" }}</td>

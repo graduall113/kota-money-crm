@@ -15,6 +15,8 @@ n8n_last_sync / n8n_error fields. The lead is never rolled back or
 deleted because the webhook failed.
 """
 
+import hashlib
+import json
 import logging
 
 import requests
@@ -62,70 +64,88 @@ def build_lead_payload(lead):
     }
 
 
+# Keys that describe the DELIVERY, not the lead. They are left out of the content
+# hash so a Lead save that changes nothing synced never triggers a re-send.
+_NON_CONTENT_KEYS = {"event", "idempotency_key", "sync_reason", "is_new_lead", "updated_at"}
+
+CREATION_REASONS = ("created", "converted")
+
+
+def build_sync_payload(lead, reasons=""):
+    """
+    The lead_upsert payload sent to n8n for EVERY sync (new lead, edit, status /
+    assignment / reference change, contact edit ...).
+
+    It is build_lead_payload() (all legacy keys, unchanged) plus ADDITIVE keys, so the
+    existing workflow keeps working and extra Sheet columns can be mapped whenever wanted:
+
+      event / idempotency_key   "lead_upsert" / "lead-KM-1050" (also sent as the
+                                Idempotency-Key header). The Sheet key is lead_reference_id.
+      sync_reason / is_new_lead why this was sent; is_new_lead lets the n8n workflow send
+                                Gmail / WhatsApp ONLY for a brand-new lead, not on every edit.
+      assigned_to_staff /       the CRM staff-ownership users (My Leads owner / creator).
+      reference_by_staff        The legacy assigned_to / reference_by keys still carry the
+                                free-text values from the form and are NOT redefined here.
+      email, city, source, interest, next_followup_date, contact_id, updated_at
+    """
+    from .models import user_label
+
+    reason_list = [r for r in str(reasons or "").split(",") if r]
+    payload = build_lead_payload(lead)
+    payload.update({
+        "event": "lead_upsert",
+        "idempotency_key": f"lead-{lead.display_id}",
+        "sync_reason": ",".join(reason_list),
+        "is_new_lead": any(r in CREATION_REASONS for r in reason_list),
+        "email": lead.email or "",
+        "city": lead.city or "",
+        "source": lead.source or "",
+        "interest": lead.get_interest_display() if lead.interest else "",
+        "next_followup_date": lead.next_followup_date.strftime("%d/%m/%Y") if lead.next_followup_date else "",
+        "assigned_to_staff": user_label(lead.assigned_to) if lead.assigned_to_id else "",
+        "reference_by_staff": user_label(lead.reference_by) if lead.reference_by_id else "",
+        "contact_id": lead.contact_id or "",
+        "updated_at": timezone.localtime(lead.updated_at).strftime("%d/%m/%Y %H:%M") if lead.updated_at else "",
+    })
+    return payload
+
+
+def payload_content_hash(payload):
+    """Stable hash of only the lead's synced CONTENT (see _NON_CONTENT_KEYS)."""
+    content = {k: v for k, v in payload.items() if k not in _NON_CONTENT_KEYS}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def post_payload(webhook_url, payload):
+    """
+    One HTTP POST to n8n. Raises requests.exceptions.RequestException on a network
+    error OR a non-2xx answer (so n8n's own 5xx, e.g. Google Sheets failing, counts as
+    a failed delivery and gets retried). Returns the response on success.
+
+    The Idempotency-Key is stable per Lead and identical on every attempt. n8n Cloud
+    does not de-duplicate on it by itself: the guard against a second Sheet row is the
+    Google Sheets node "Append or Update Row" matching on the Lead ID column.
+    """
+    response = requests.post(
+        webhook_url,
+        json=payload,
+        headers={"Content-Type": "application/json", "Idempotency-Key": payload["idempotency_key"]},
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    return response
+
+
 def send_lead_to_n8n(lead):
     """
-    POSTs the given (already-saved) Lead to settings.N8N_LEAD_WEBHOOK_URL
-    and updates its n8n_sync_status / n8n_last_sync / n8n_error fields
-    to reflect the outcome.
+    Synchronous "sync this lead to n8n right now" (Add New Lead / Convert Contact).
 
-    Returns (success: bool, error_message: str). On success error_message
-    is "". This function never raises — every failure mode is caught so
-    the calling view can always show the user a clean message instead of
-    a Django error page.
+    Kept with its original contract: returns (success: bool, error_message: str), never
+    raises, and updates Lead.n8n_sync_status / n8n_last_sync / n8n_error. Internally it
+    now goes through the sync queue (crm/lead_sync.py), so a failed delivery is retried
+    automatically instead of being lost, and it can never race a second event for the
+    same Lead into a second Sheet row.
     """
-    # Single source of truth: the URL an admin saved in Settings → n8n, falling
-    # back to settings.N8N_LEAD_WEBHOOK_URL (env var) when none is saved.
-    from .settings_store import get_bool, get_n8n_webhook_url
+    from . import lead_sync
 
-    if lead.pk is None:
-        # An unsaved Lead has no Lead ID yet; never send a row without one.
-        return False, "Lead has not been saved yet, so it has no Lead ID."
-
-    if not get_bool("n8n_enabled"):
-        return False, "n8n integration is switched off in Settings."
-    webhook_url = get_n8n_webhook_url()
-
-    if not webhook_url:
-        error_message = "N8N_LEAD_WEBHOOK_URL is not configured."
-        logger.error("n8n sync skipped for lead %s: %s", lead.pk, error_message)
-        lead.n8n_sync_status = lead.N8N_SYNC_FAILED
-        lead.n8n_error = error_message
-        lead.n8n_last_sync = timezone.now()
-        lead.save(update_fields=["n8n_sync_status", "n8n_error", "n8n_last_sync"])
-        return False, error_message
-
-    payload = build_lead_payload(lead)
-    logger.info("Sending lead %s (%s) to n8n webhook %s", lead.pk, payload["lead_reference_id"], webhook_url)
-
-    try:
-        response = requests.post(
-            webhook_url,
-            json=payload,
-            headers={
-                "Content-Type": "application/json",
-                # Stable per Lead, identical on every delivery attempt. n8n can
-                # use it (or, better, the Sheet's "Lead ID" column via
-                # "Append or Update Row") to make a repeated delivery a no-op
-                # instead of a second spreadsheet row. See docs/n8n_lead_id_setup.md.
-                "Idempotency-Key": f"lead-{payload['lead_reference_id']}",
-            },
-            timeout=DEFAULT_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-    except requests.exceptions.RequestException as exc:
-        error_message = str(exc)[:2000]
-        logger.error("n8n webhook request failed for lead %s: %s", lead.pk, error_message)
-        lead.n8n_sync_status = lead.N8N_SYNC_FAILED
-        lead.n8n_error = error_message
-        lead.n8n_last_sync = timezone.now()
-        lead.save(update_fields=["n8n_sync_status", "n8n_error", "n8n_last_sync"])
-        return False, error_message
-
-    logger.info(
-        "n8n webhook accepted lead %s (HTTP %s)", lead.pk, response.status_code
-    )
-    lead.n8n_sync_status = lead.N8N_SYNC_SUCCESS
-    lead.n8n_error = ""
-    lead.n8n_last_sync = timezone.now()
-    lead.save(update_fields=["n8n_sync_status", "n8n_error", "n8n_last_sync"])
-    return True, ""
+    return lead_sync.sync_lead_now(lead, reason="converted" if lead.contact_id else "created")

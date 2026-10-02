@@ -1,0 +1,50 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { secret: 'PASTE_YOUR_WEBHOOK_SECRET_HERE', lead_reference_id: $('Webhook').first().json.body.lead_reference_id, status: $('Webhook').first().json.body.status } }}",
+        "options": { "redirect": { "redirect": { "followRedirects": true } } }
+      },
+      "name": "Colour Sheet Row",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "colour-ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Colour OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": { "errorMessage": "={{ 'Row colouring failed: ' + $json.error }}" },
+      "name": "Stop: colouring failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    }
+  ],
+  "connections": {
+    "Colour Sheet Row": { "main": [[{ "node": "Colour OK?", "type": "main", "index": 0 }]] },
+    "Colour OK?": { "main": [[], [{ "node": "Stop: colouring failed", "type": "main", "index": 0 }]] }
+  }
+}

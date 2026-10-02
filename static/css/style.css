@@ -185,6 +185,93 @@ a {
   margin: 12px 12px;
 }
 
+/* ---- Collapsible sidebar groups (Staff / Calling) --------------------
+   Plain <details>/<summary>: works without JS, keyboard + screen-reader
+   friendly, and reuses the existing .nav-link look. */
+.nav-group > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.nav-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.nav-group > summary::marker {
+  content: "";
+}
+
+.nav-link .nav-chevron {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  opacity: 0.55;
+  transition: transform 0.18s ease, opacity 0.15s ease;
+}
+
+.nav-group[open] > summary .nav-chevron {
+  transform: rotate(90deg);
+}
+
+.nav-group > summary:hover .nav-chevron,
+.nav-group > summary.has-active .nav-chevron {
+  opacity: 0.9;
+}
+
+.nav-group > summary.has-active {
+  color: #ffffff;
+}
+
+.nav-group > summary:focus-visible,
+.nav-sublink:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+.nav-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 6px 20px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.nav-sublink {
+  display: block;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  color: rgba(255, 255, 255, 0.62);
+  font-family: "Sora", "Inter", sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-sublink:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.nav-sublink.is-active {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+@media (max-width: 900px) {
+  /* Bigger touch targets inside the slide-over sidebar. */
+  .nav-sublink {
+    padding: 10px 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-link .nav-chevron {
+    transition: none;
+  }
+}
+
 .nav-add-lead {
   margin: 4px 14px 20px;
   padding: 12px 14px;
@@ -1115,6 +1202,7 @@ a {
 }
 .att-badge-working { background: rgba(31, 111, 84, 0.25); color: #9be0c2; }
 .att-badge-ended { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.8); }
+.att-badge-holiday { background: rgba(45, 94, 168, 0.28); color: #b9d2fa; }
 .att-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; animation: att-pulse 1.8s ease-in-out infinite; }
 @keyframes att-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .att-dot { animation: none; } }
@@ -1124,6 +1212,7 @@ a {
 .att-hero-title { font-family: "Sora", sans-serif; font-size: 22px; font-weight: 600; color: var(--text); }
 .att-panel .att-badge-working { background: var(--accent-soft); color: var(--accent); }
 .att-panel .att-badge-ended { background: var(--gold-soft); color: #8a6a12; }
+.att-panel .att-badge-holiday { background: #e8f0fe; color: #2d5ea8; }
 .att-badge-lg { font-size: 13px; padding: 7px 14px; }
 .att-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px 28px; margin: 0; width: 100%; }
 .att-facts dt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
@@ -1163,3 +1252,51 @@ a {
   .sa-correct-grid { grid-template-columns: 1fr; }
   .sa-header .btn-secondary { flex: 1 1 calc(50% - 6px); text-align: center; }
 }
+
+
+/* ---- Staff CRM activity (mobile-first) ---- */
+.act-chip { font-weight: 600; color: rgba(255, 255, 255, 0.9); }
+.act-chip[data-state="active"] { color: #9be0c2; }
+.act-chip[data-state="temp_inactive"], .act-chip[data-state="unknown"] { color: #f1d27a; }
+.act-chip[data-state="background"], .act-chip[data-state="disconnected"] { color: #f4a3a3; }
+.att-btn-lunch { background: rgba(255, 255, 255, 0.14); color: #fff; margin-top: 4px; }
+.att-btn-lunch:hover:not(:disabled) { background: rgba(255, 255, 255, 0.22); }
+.act-warn {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0, 0, 0, 0.35);
+}
+.act-warn[hidden] { display: none; }
+.act-warn-box {
+  max-width: 480px; margin: 0 auto; padding: 18px 16px; border-radius: var(--radius-md);
+  background: #fff8e1; color: #3b2f00; border: 1px solid #f1d27a; display: flex; flex-direction: column; gap: 10px;
+}
+.act-warn-box p { margin: 0; }
+.act-warn-box small { color: #6b5a1f; }
+.act-warn-box .att-btn { min-height: 48px; }
+.act-state { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #eef0f3; color: #3a4350; }
+.act-state-active { background: #e1f5ec; color: #1f6f54; }
+.act-state-temp_inactive, .act-state-unknown { background: #fff4d6; color: #8a6a12; }
+.act-state-background, .act-state-disconnected { background: #fde7e7; color: #a32a2a; }
+.act-state-lunch { background: #e8f0fe; color: #2d5ea8; }
+
+/* ---- Attendance day statuses: PRESENT / HALF DAY / ABSENT / SUNDAY / HOLIDAY (one palette, reused everywhere) ---- */
+.badge.present, .att-status-present { background: #e1f3ea; color: #17623f; }
+.badge.half, .att-status-half { background: #fdf0d5; color: #8a5a00; }
+.badge.absent, .att-status-absent { background: #fbe3df; color: #a8321a; }
+.badge.sunday, .att-status-sunday { background: #e6e8ee; color: #4a5160; }
+.badge.holiday, .att-status-holiday { background: #ece4fa; color: #5b32a0; }
+.badge.pending, .att-status-pending { background: #eef0f4; color: var(--text-muted); }
+.att-status { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: .02em; white-space: nowrap; background: #eef0f4; }
+.att-status-badge { font-weight: 600; letter-spacing: .02em; }
+tr.att-row-sunday > td { background: #f3f4f7; }
+tr.att-row-holiday > td { background: #f6f1fd; }
+tr.att-row-absent > td:first-child, tr.att-row-sunday > td:first-child, tr.att-row-holiday > td:first-child,
+tr.att-row-half > td:first-child, tr.att-row-present > td:first-child { box-shadow: inset 3px 0 0 transparent; }
+tr.att-row-absent > td:first-child { box-shadow: inset 3px 0 0 #d9533b; }
+tr.att-row-sunday > td:first-child { box-shadow: inset 3px 0 0 #8b93a5; }
+tr.att-row-holiday > td:first-child { box-shadow: inset 3px 0 0 #7c4dd1; }
+tr.att-row-half > td:first-child { box-shadow: inset 3px 0 0 #e0a21a; }
+.sa-card-present .stat-value { color: #17623f; } .sa-card-half .stat-value { color: #8a5a00; }
+.sa-card-absent .stat-value { color: #a8321a; } .sa-card-sunday .stat-value { color: #4a5160; }
+.sa-card-holiday .stat-value { color: #5b32a0; }

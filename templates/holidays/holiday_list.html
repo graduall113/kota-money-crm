@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Holidays · Kota Money CRM{% endblock %}
+{% block content %}
+<div class="page-header with-actions">
+  <div>
+    <h1>Holidays</h1>
+    <p>Company holidays — a single day or any run of consecutive days. Today is {{ today|date:"l, d/m/Y" }}. Admins only.</p>
+  </div>
+  <div class="page-actions"><a href="{% url 'holiday_create' %}" class="btn-primary">+ Add Holiday</a></div>
+</div>
+
+<div class="stat-grid cols-3">
+  <div class="stat-card">
+    <div class="stat-label">Holiday today</div>
+    {% if current_holiday %}
+      <div class="stat-value" style="font-size:20px;">{{ current_holiday.name }}</div>
+      <div class="stat-sub">until {{ current_holiday.end_date|date:"d/m/Y" }}</div>
+    {% else %}
+      <div class="stat-value" style="font-size:20px;">None</div>
+      <div class="stat-sub">Today is a normal working day</div>
+    {% endif %}
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Next holiday</div>
+    {% if next_holiday %}
+      <div class="stat-value" style="font-size:20px;">{{ next_holiday.name }}</div>
+      <div class="stat-sub">{{ next_holiday.start_date|date:"d/m/Y" }} · {% if next_in_days == 1 %}tomorrow{% else %}in {{ next_in_days }} days{% endif %}</div>
+    {% else %}
+      <div class="stat-value" style="font-size:20px;">None scheduled</div>
+      <div class="stat-sub">No active upcoming holidays</div>
+    {% endif %}
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Active holidays in {{ today.year }}</div>
+    <div class="stat-value">{{ this_year }}</div>
+    <div class="stat-sub">by start date</div>
+  </div>
+</div>
+
+<div class="tabs" style="margin-top:18px;">
+  {% for key, label, n in tabs %}<a href="?tab={{ key }}" class="{% if tab == key %}is-active{% endif %}">{{ label }} ({{ n }})</a>{% endfor %}
+</div>
+
+<div class="panel">
+  {% if rows %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>Holiday</th><th>Dates</th><th>Days</th><th>Status</th><th>Active</th><th>Reason</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for r in rows %}{% with h=r.h %}
+      <tr {% if not h.is_active %}style="opacity:.65;"{% endif %}>
+        <td><strong>{{ h.name }}</strong><div class="muted">added by {{ h.created_by.get_full_name|default:h.created_by.username|default:"—" }}</div></td>
+        <td class="nowrap">{% if h.is_single_day %}{{ h.start_date|date:"D, d/m/Y" }}{% else %}{{ h.start_date|date:"d/m/Y" }} – {{ h.end_date|date:"d/m/Y" }}{% endif %}</td>
+        <td>{{ h.duration_days }}</td>
+        <td>
+          {% if r.status == "current" %}<span class="badge ok">Ongoing</span>
+          {% elif r.status == "upcoming" %}<span class="badge info">Upcoming{% if r.days_until == 1 %} · tomorrow{% else %} · in {{ r.days_until }} days{% endif %}</span>
+          {% else %}<span class="badge">Past</span>{% endif %}
+        </td>
+        <td>{% if h.is_active %}<span class="badge ok">Active</span>{% else %}<span class="badge warn">Inactive</span>{% endif %}</td>
+        <td>{{ h.reason|truncatechars:60|default:"—" }}</td>
+        <td class="row-actions">
+          <a class="link" href="{% url 'holiday_edit' h.pk %}">Edit</a>
+          <form method="post" action="{% url 'holiday_toggle' h.pk %}" style="margin:0;">{% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button class="btn-secondary btn-sm">{% if h.is_active %}Deactivate{% else %}Activate{% endif %}</button>
+          </form>
+          <a class="link action-danger" href="{% url 'holiday_delete' h.pk %}">Delete</a>
+        </td>
+      </tr>
+    {% endwith %}{% endfor %}
+    </tbody>
+  </table></div>
+  {% include "partials/pagination.html" %}
+  {% else %}
+  <div class="empty-state">
+    <h3>{% if tab == "upcoming" %}No upcoming holidays{% elif tab == "current" %}No holiday today{% elif tab == "past" %}No past holidays{% else %}No holidays yet{% endif %}</h3>
+    <p>{% if counts.all == 0 %}Add your first holiday — for example “Diwali Holiday”, 20/10/2026 to 27/10/2026.{% else %}Try another tab above.{% endif %}</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

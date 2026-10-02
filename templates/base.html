@@ -52,38 +52,47 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.5V12l3 2"/></svg>
         Follow-ups
       </a>
+
+      {% comment %}CALLING: admin gets a group (Calling / Devices / Privileged Numbers); staff get ONE plain link. Hiding is cosmetic only - the admin-only views are guarded by @admin_required (403).{% endcomment %}
+      {% if profile.is_admin %}
+      <details class="nav-group" data-nav-group="calling" {% if active_page == 'calling' or active_page == 'calling_devices' or active_page == 'calling_privileged' %}open{% endif %}>
+        <summary class="nav-link nav-group-toggle {% if active_page == 'calling' or active_page == 'calling_devices' or active_page == 'calling_privileged' %}has-active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5c1 0 1.9.7 2.2 1.7l.7 2.1c.2.7 0 1.5-.5 2l-1.2 1.2a13 13 0 0 0 5.8 5.8l1.2-1.2c.5-.5 1.3-.7 2-.5l2.1.7c1 .3 1.7 1.2 1.7 2.2v1.8c0 1.4-1.2 2.5-2.6 2.4-8-.5-14.4-6.9-14.9-14.9C3 5.7 4.1 4.5 5.5 4.5h1Z"/></svg>
+          Calling
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+        <a href="{% url 'calling_dashboard' %}" class="nav-sublink {% if active_page == 'calling' %}is-active{% endif %}">Calling</a>
+        <a href="{% url 'calling_devices' %}" class="nav-sublink {% if active_page == 'calling_devices' %}is-active{% endif %}">Calling Devices</a>
+        <a href="{% url 'calling_privileged_numbers' %}" class="nav-sublink {% if active_page == 'calling_privileged' %}is-active{% endif %}">Privileged Numbers</a>
+        </div>
+      </details>
+      {% else %}
       <a href="{% url 'calling_dashboard' %}" class="nav-link {% if active_page == 'calling' %}is-active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5c1 0 1.9.7 2.2 1.7l.7 2.1c.2.7 0 1.5-.5 2l-1.2 1.2a13 13 0 0 0 5.8 5.8l1.2-1.2c.5-.5 1.3-.7 2-.5l2.1.7c1 .3 1.7 1.2 1.7 2.2v1.8c0 1.4-1.2 2.5-2.6 2.4-8-.5-14.4-6.9-14.9-14.9C3 5.7 4.1 4.5 5.5 4.5h1Z"/></svg>
         Calling
       </a>
+      {% endif %}
 
       {% if profile.is_admin %}
       <div class="nav-divider"></div>
 
-      <a href="{% url 'staff_list' %}" class="nav-link {% if active_page == 'staff' %}is-active{% endif %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2.5 19c0-3.3 2.9-5.6 6.5-5.6s6.5 2.3 6.5 5.6"/><circle cx="17.5" cy="8.5" r="2.3"/><path d="M16 13.6c2.7.4 4.5 2.3 4.5 5"/></svg>
-        Staff
-      </a>
-      <a href="{% url 'staff_attendance' %}" class="nav-link {% if active_page == 'staff_attendance' %}is-active{% endif %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9 15l2 2 4-4"/></svg>
-        Staff Attendance
-      </a>
-      <a href="{% url 'calling_devices' %}" class="nav-link {% if active_page == 'calling_devices' %}is-active{% endif %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.2h2"/></svg>
-        Calling Devices
-      </a>
-      <a href="{% url 'attendance_events' %}" class="nav-link {% if active_page == 'attendance_events' %}is-active{% endif %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
-        Attendance Review
-      </a>
-      <a href="{% url 'attendance_devices' %}" class="nav-link {% if active_page == 'attendance_devices' %}is-active{% endif %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
-        Attendance Devices
-      </a>
-      <a href="{% url 'calling_privileged_numbers' %}" class="nav-link {% if active_page == 'calling_privileged' %}is-active{% endif %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 4 6v6c0 5 3.4 8 8 9.5 4.6-1.5 8-4.5 8-9.5V6l-8-3.5Z"/></svg>
-        Privileged Numbers
-      </a>
+      {% comment %}STAFF group: every item is admin-only on the server (admin_required).{% endcomment %}
+      <details class="nav-group" data-nav-group="staff" {% if active_page == 'staff' or active_page == 'staff_attendance' or active_page == 'staff_activity' or active_page == 'attendance_events' or active_page == 'attendance_devices' or active_page == 'holidays' %}open{% endif %}>
+        <summary class="nav-link nav-group-toggle {% if active_page == 'staff' or active_page == 'staff_attendance' or active_page == 'staff_activity' or active_page == 'attendance_events' or active_page == 'attendance_devices' or active_page == 'holidays' %}has-active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2.5 19c0-3.3 2.9-5.6 6.5-5.6s6.5 2.3 6.5 5.6"/><circle cx="17.5" cy="8.5" r="2.3"/><path d="M16 13.6c2.7.4 4.5 2.3 4.5 5"/></svg>
+          Staff
+          <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </summary>
+        <div class="nav-sub">
+        <a href="{% url 'staff_list' %}" class="nav-sublink {% if active_page == 'staff' %}is-active{% endif %}">Staff</a>
+        <a href="{% url 'staff_attendance' %}" class="nav-sublink {% if active_page == 'staff_attendance' %}is-active{% endif %}">Staff Attendance</a>
+        <a href="{% url 'staff_activity' %}" class="nav-sublink {% if active_page == 'staff_activity' %}is-active{% endif %}">Staff Activity</a>
+        <a href="{% url 'attendance_events' %}" class="nav-sublink {% if active_page == 'attendance_events' %}is-active{% endif %}">Attendance Review</a>
+        <a href="{% url 'attendance_devices' %}" class="nav-sublink {% if active_page == 'attendance_devices' %}is-active{% endif %}">Attendance Devices</a>
+        <a href="{% url 'holiday_list' %}" class="nav-sublink {% if active_page == 'holidays' %}is-active{% endif %}">Holidays</a>
+        </div>
+      </details>
       <a href="{% url 'import_list' %}" class="nav-link {% if active_page == 'imports' %}is-active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></svg>
         Import Data
@@ -111,7 +120,11 @@
     {% if attendance %}
     {# Staff: server-driven attendance control (replaces the old quick "Add New Lead" button). #}
     <div class="att-widget att-{{ attendance.state }}" id="attWidget">
-      {% if attendance.state == 'not_started' %}
+      {% if attendance.state == 'not_started' and attendance.is_holiday %}
+        <div class="att-badge att-badge-holiday">Holiday</div>
+        <div class="att-meta">{{ attendance.holiday.name }}</div>
+        <div class="att-meta">{{ attendance.holiday_label }}</div>
+      {% elif attendance.state == 'not_started' %}
         <form method="post" action="{% url 'attendance_start' %}" class="js-att-form">
           {% csrf_token %}
           <button type="submit" class="att-btn att-btn-start" {% if not attendance.can_start %}disabled{% endif %}>Start Day</button>
@@ -121,6 +134,17 @@
         <div class="att-badge att-badge-working"><span class="att-dot"></span>Working</div>
         <div class="att-meta">Started: {{ attendance.started_label }}</div>
         <div class="att-meta">Worked: <span id="attWorked" data-elapsed="{{ attendance.elapsed_seconds }}" data-remaining="{{ attendance.seconds_to_auto_end }}">{{ attendance.worked_label }}</span></div>
+        {% if activity_cfg %}
+        <div class="att-meta act-chip" id="actChip" data-state="">CRM status: waiting for first signal…</div>
+        {% if lunch.on_lunch %}
+        <div class="att-meta">On lunch since {{ lunch.started_label }}</div>
+        <form method="post" action="{% url 'lunch_end' %}">{% csrf_token %}<button type="submit" class="att-btn att-btn-lunch">End Lunch</button></form>
+        {% elif not lunch.taken %}
+        <form method="post" action="{% url 'lunch_start' %}">{% csrf_token %}<button type="submit" class="att-btn att-btn-lunch">Start Lunch</button></form>
+        {% else %}
+        <div class="att-meta">Lunch taken ({{ lunch.started_label }})</div>
+        {% endif %}
+        {% endif %}
         <form method="post" action="{% url 'attendance_end' %}" class="js-att-form">
           {% csrf_token %}
           <button type="submit" class="att-btn att-btn-end">End Day</button>
@@ -133,12 +157,6 @@
         <div class="att-meta">Status: {{ attendance.status_label }}</div>
       {% endif %}
     </div>
-    {% else %}
-    {# Admins aren't subject to attendance, so they keep the quick-add shortcut. #}
-    <a href="{% url 'lead_create' %}" class="nav-add-lead {% if active_page == 'add_lead' %}is-active{% endif %}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      Add New Lead
-    </a>
     {% endif %}
 
     <div class="sidebar-footer">Kota Money &middot; internal CRM</div>
@@ -194,6 +212,16 @@
       }
     });
   }
+
+  // Collapsible sidebar groups. The server opens the group that contains the current page;
+  // we only remember groups the user opened by hand. Storage may be blocked -> fail silently.
+  document.querySelectorAll('details.nav-group[data-nav-group]').forEach((g) => {
+    const key = 'kmcrm.nav.' + g.dataset.navGroup;
+    try { if (!g.open && localStorage.getItem(key) === '1') g.open = true; } catch (e) {}
+    g.addEventListener('toggle', () => {
+      try { localStorage.setItem(key, g.open ? '1' : '0'); } catch (e) {}
+    });
+  });
 
   const menuTrigger = document.getElementById('userMenuTrigger');
   const userMenu = document.getElementById('userMenu');
@@ -256,6 +284,20 @@
     }, 15000);
   }
 </script>
+{% endif %}
+{% if activity_cfg %}
+{# Mobile CRM activity reporter: heartbeat + real-interaction + visibility reports. Server is authoritative. #}
+<div id="actCfg" hidden data-url="{% url 'activity_signal' %}" data-token="{{ csrf_token }}"
+     data-heartbeat="{{ activity_cfg.heartbeat }}" data-report-min="{{ activity_cfg.report_min }}"></div>
+<div id="actWarn" class="act-warn" role="alertdialog" aria-live="assertive" aria-labelledby="actWarnTitle" hidden data-activity-ignore>
+  <div class="act-warn-box">
+    <strong id="actWarnTitle">⚠️ Activity Warning</strong>
+    <p id="actWarnText">You have not used the CRM recently. You may be marked inactive soon. Please continue working in the CRM.</p>
+    <button type="button" id="actWarnOk" class="att-btn att-btn-start">I'm Active</button>
+    <small>This only closes the notice. Open or update a lead or contact in the CRM to reset the timer.</small>
+  </div>
+</div>
+<script src="{% static 'js/staff_activity.js' %}" defer></script>
 {% endif %}
 {% block extra_scripts %}{% endblock %}
 </body>

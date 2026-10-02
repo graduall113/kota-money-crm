@@ -10,7 +10,7 @@
   <div class="table-scroll"><table class="data-table"><thead><tr><th>Row</th><th>Incoming</th><th>Existing contact</th><th>Decision</th></tr></thead><tbody>
   {% for r in rows %}<tr><td>{{ r.row_number }}</td>
     <td>{{ r.data.name }}<br><span class="muted">{{ r.data.phone }} {{ r.data.email }} {{ r.data.city }}</span></td>
-    <td><a class="link" target="_blank" href="{% url 'contact_detail' r.existing_contact_id %}">{{ r.existing_contact.name }}</a><br><span class="muted">{{ r.existing_contact.phone }} {{ r.existing_contact.email }} {{ r.existing_contact.city }}</span></td>
+    <td>{% if r.existing_contact_id %}<a class="link" target="_blank" href="{% url 'contact_detail' r.existing_contact_id %}">{{ r.existing_contact.name }}</a><br><span class="muted">{{ r.existing_contact.phone }} {{ r.existing_contact.email }} {{ r.existing_contact.city }}</span>{% else %}<span class="muted">The matched contact was deleted — "Update" will be skipped; "Import as new" still works.</span>{% endif %}</td>
     <td><select name="d_{{ r.pk }}" style="min-width:150px;">{% for k, l in r.DECISION_CHOICES %}<option value="{{ k }}" {% if r.decision == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></td></tr>
   {% empty %}<tr><td colspan="4" class="muted">Nothing left to review.</td></tr>{% endfor %}</tbody></table></div>
   {% include "partials/pagination.html" %}

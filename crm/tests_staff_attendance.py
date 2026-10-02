@@ -16,7 +16,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.db import connection
-from django.test import Client, TestCase
+from django.test import override_settings, Client, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -29,6 +29,7 @@ TODAY = datetime.date(2026, 9, 27)
 TODAY_STR = "27/09/2026"
 
 
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class Base(TestCase):
     """
     Fixture for "today" (27 Sep 2026, clock frozen at 18:45 IST - before the 19:00 auto-end):
@@ -103,6 +104,7 @@ ALL_STAFF = ["amit", "kiran", "neha", "rahul", "sonia", "vikram"]
 
 
 # ==================================================================== permissions
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class PermissionTests(Base):
     def test_admin_can_open_dashboard_detail_and_export(self):
         self.assertEqual(self.get().status_code, 200)
@@ -163,6 +165,7 @@ class PermissionTests(Base):
 
 
 # ==================================================================== dashboard cards
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class DashboardCountTests(Base):
     def test_today_counts(self):
         self.event(self.rahul)                                   # flagged, has a record
@@ -171,13 +174,15 @@ class DashboardCountTests(Base):
         self.event(self.neha, when=at(10, 0, day=26))            # yesterday -> not today's anomaly
         s = self.get().context["summary"]
         self.assertEqual(
-            {k: s[k] for k in ("total", "started", "not_started", "working", "ended", "full_day", "half_day", "auto_ended", "anomalies")},
+            {k: s[k] for k in ("total", "started", "not_started", "working", "ended", "present", "half_day", "absent", "auto_ended", "anomalies")},
+            # present = 3 full days + 1 still working
             {"total": 6, "started": 5, "not_started": 1, "working": 1, "ended": 4,
-             "full_day": 2, "half_day": 1, "auto_ended": 1, "anomalies": 2},
+             "present": 4, "half_day": 1, "absent": 0, "auto_ended": 1, "anomalies": 2},
         )
 
     def test_started_plus_not_started_equals_total(self):
-        s = aa.today_summary(TODAY)
+        with Clock(at(18, 45)):
+            s = aa.today_summary(TODAY)
         self.assertEqual(s["started"] + s["not_started"], s["total"])
 
     def test_admins_and_inactive_staff_are_never_counted(self):
@@ -189,7 +194,7 @@ class DashboardCountTests(Base):
 
     def test_cards_render_and_link_to_filtered_table(self):
         resp = self.get()
-        for label in ("Total Staff", "Started", "Not Started", "Currently Working", "Ended", "Full Day", "Half Day",
+        for label in ("Total Staff", "Started", "Not Started", "Currently Working", "Ended", "Present", "Half Day", "Absent",
                       "Auto Ended", "Verification Anomalies"):
             self.assertContains(resp, label)
         self.assertContains(resp, "status=working")
@@ -201,13 +206,16 @@ class DashboardCountTests(Base):
 
 
 # ==================================================================== table + statuses
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class TableTests(Base):
     def test_every_staff_member_is_listed_with_the_right_status(self):
         rows = self.rows(self.get())
         self.assertEqual(sorted(rows), ALL_STAFF)  # not the admin, not the inactive one
-        self.assertEqual({u: r.status for u, r in rows.items()}, {
-            "rahul": "working", "amit": "full_day", "neha": "half_day", "vikram": "full_day",
-            "kiran": "ended", "sonia": "not_started",
+        with Clock(at(18, 45)):   # Row.status is derived lazily from "now"
+            got = {u: r.status for u, r in rows.items()}
+        self.assertEqual(got, {
+            "rahul": "present", "amit": "present", "neha": "half_day", "vikram": "present",
+            "kiran": "present", "sonia": "not_started",
         })
         self.assertTrue(rows["vikram"].auto_ended)
         self.assertFalse(rows["amit"].auto_ended)
@@ -251,11 +259,13 @@ class TableTests(Base):
 
 
 # ==================================================================== filters
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class FilterTests(Base):
     def test_status_filters(self):
         expected = {
-            "not_started": ["sonia"], "working": ["rahul"], "full_day": ["amit", "vikram"], "half_day": ["neha"],
+            "not_started": ["sonia"], "working": ["rahul"], "present": ["amit", "kiran", "rahul", "vikram"], "half_day": ["neha"],
             "ended": ["amit", "kiran", "neha", "vikram"], "auto_ended": ["vikram"], "absent": [],
+            "full_day": ["amit", "kiran", "rahul", "vikram"],   # legacy bookmarked value maps to present
         }
         for status, names in expected.items():
             self.assertEqual(self.names(self.get(status=status)), names, status)
@@ -297,7 +307,7 @@ class FilterTests(Base):
         self.assertEqual(self.names(self.get(staff=self.neha.pk)), ["neha"])
 
     def test_combined_filters(self):
-        self.assertEqual(self.names(self.get(status="full_day", auto_ended="no")), ["amit"])
+        self.assertEqual(self.names(self.get(status="present", auto_ended="no")), ["amit", "kiran", "rahul"])
         self.assertEqual(self.names(self.get(status="full_day", auto_ended="yes", staff=self.amit.pk)), [])
 
     def test_bad_or_tampered_values_are_ignored_not_errors(self):
@@ -307,12 +317,12 @@ class FilterTests(Base):
 
     def test_date_filter_and_range(self):
         self.rec(self.rahul, at(10, 0), at(19, 0), day=26)
-        self.assertEqual(self.names(self.get(date="26/09/2026", status="full_day")), ["rahul"])
+        self.assertEqual(self.names(self.get(date="26/09/2026", status="present")), ["rahul"])
         resp = self.get(date="26/09/2026", date_to="27/09/2026")
-        self.assertEqual(len(resp.context["rows"]), 6)  # record-driven: 5 on the 27th + 1 on the 26th
-        self.assertEqual(self.names(self.get(date="26/09/2026", date_to="27/09/2026", status="not_started")), [])
+        self.assertEqual(len(resp.context["rows"]), 12)  # range view: every staff member x every day (6 x 2)
+        self.assertEqual(self.names(self.get(date="26/09/2026", date_to="27/09/2026", status="not_started")), ["sonia"])  # only today can be "not started"
         # reversed range is swapped, not an error
-        self.assertEqual(len(self.get(date="27/09/2026", date_to="26/09/2026").context["rows"]), 6)
+        self.assertEqual(len(self.get(date="27/09/2026", date_to="26/09/2026").context["rows"]), 12)
 
     def test_iso_dates_also_accepted(self):
         self.assertEqual(self.names(self.get(date="2026-09-27")), ALL_STAFF)
@@ -329,6 +339,7 @@ class FilterTests(Base):
 
 
 # ==================================================================== search
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class SearchTests(Base):
     def test_search_by_name_case_insensitive(self):
         self.assertEqual(self.names(self.get(q="rahul")), ["rahul"])
@@ -366,10 +377,11 @@ class SearchTests(Base):
         self.assertEqual(self.names(self.get(q="a", status="half_day")), ["neha"])
 
     def test_search_works_in_range_mode(self):
-        self.assertEqual(self.names(self.get(q="amit", date="26/09/2026", date_to="27/09/2026")), ["amit"])
+        self.assertEqual(self.names(self.get(q="amit", date="26/09/2026", date_to="27/09/2026")), ["amit", "amit"])  # one row per day
 
 
 # ==================================================================== pagination / performance
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class PaginationTests(Base):
     def _add_staff(self, n):
         for i in range(n):
@@ -436,6 +448,7 @@ class PaginationTests(Base):
 
 
 # ==================================================================== detail
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class DetailTests(Base):
     def setUp(self):
         super().setUp()
@@ -454,7 +467,7 @@ class DetailTests(Base):
     def test_detail_shows_everything_requested(self):
         self.event(self.amit, etype="poor_accuracy", when=at(10, 0))
         resp = self.detail()
-        for text in ("Amit", "27/09/2026", "10:00 AM", "06:30 PM", "08h 30m", "Full Day",
+        for text in ("Amit", "27/09/2026", "10:00 AM", "06:30 PM", "08h 30m", "PRESENT",
                      "Inside office area", "±12 m", "7 m", "203.0.113.10",
                      "Outside office area", "low GPS accuracy", "±250 m", "640 m", "198.51.100.77",
                      "Front-desk PC", "Poor GPS Accuracy", "Audit history", "Anomalies"):
@@ -488,6 +501,7 @@ class DetailTests(Base):
 
 
 # ==================================================================== corrections
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class CorrectionTests(Base):
     def fresh(self, rec):
         return Attendance.objects.get(pk=rec.pk)
@@ -531,7 +545,7 @@ class CorrectionTests(Base):
         r = self.fresh(self.r_amit)
         self.assertEqual(r.start_time, at(11, 0))
         self.assertEqual(r.worked_duration, datetime.timedelta(hours=7, minutes=30))
-        self.assertEqual(r.attendance_status, "half_day")  # 7.5h < 8h full-day minimum
+        self.assertEqual(r.attendance_status, "full_day")  # 7.5h is within the full-day tolerance (was wrongly half_day)
         self.assertEqual(AttendanceCorrection.objects.filter(field="start_time").count(), 1)
 
     def test_explicit_status_change_without_touching_times(self):
@@ -690,6 +704,7 @@ class CorrectionTests(Base):
 
 
 # ==================================================================== export
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class ExportTests(Base):
     COLUMNS = ["Staff", "Date", "Start", "End", "Worked Hours", "Status", "Auto Ended", "Verification", "Anomaly"]
 
@@ -701,7 +716,8 @@ class ExportTests(Base):
 
     def csv_rows(self, **params):
         resp = self.export(**params)
-        text = b"".join(resp.streaming_content).decode("utf-8-sig")
+        with Clock(at(18, 45)):   # the CSV is generated lazily while streaming
+            text = b"".join(resp.streaming_content).decode("utf-8-sig")
         return list(csv.reader(io.StringIO(text)))
 
     def test_csv_columns_and_content(self):
@@ -710,11 +726,11 @@ class ExportTests(Base):
         self.assertEqual(rows[0], self.COLUMNS)
         by = {r[0]: r for r in rows[1:]}
         self.assertEqual(len(by), 6)
-        self.assertEqual(by["Amit"], ["Amit", "2026-09-27", "10:00", "18:30", "8.5", "Full Day", "No", "Verified", "No"])
+        self.assertEqual(by["Amit"], ["Amit", "2026-09-27", "10:00", "18:30", "8.5", "PRESENT", "No", "Verified", "No"])
         self.assertEqual(by["Vikram"][6], "Yes")
-        self.assertEqual(by["Rahul"][3:6], ["", "", "Working"])  # open day: no end, no final hours
+        self.assertEqual(by["Rahul"][3:6], ["", "", "PRESENT"])  # open day: no end, no final hours
         self.assertEqual(by["Rahul"][8], "Yes")
-        self.assertEqual(by["Sonia"], ["Sonia", "2026-09-27", "", "", "", "Not Started", "No", "", "No"])
+        self.assertEqual(by["Sonia"], ["Sonia", "2026-09-27", "", "", "", "NOT STARTED", "No", "", "No"])
 
     def test_csv_response_headers(self):
         resp = self.export()
@@ -723,14 +739,14 @@ class ExportTests(Base):
         self.assertIn(".csv", resp["Content-Disposition"])
 
     def test_export_respects_filters(self):
-        self.assertEqual({r[0] for r in self.csv_rows(status="full_day")[1:]}, {"Amit", "Vikram"})
+        self.assertEqual({r[0] for r in self.csv_rows(status="present")[1:]}, {"Amit", "Kiran", "Rahul", "Vikram"})
         self.assertEqual({r[0] for r in self.csv_rows(q="neha")[1:]}, {"Neha"})
         self.assertEqual({r[0] for r in self.csv_rows(anomaly="yes")[1:]}, set())
 
     def test_export_range_mode(self):
         self.rec(self.rahul, at(10, 0), at(19, 0), day=26)
         rows = self.csv_rows(date="26/09/2026", date_to="27/09/2026")
-        self.assertEqual(len(rows) - 1, 6)
+        self.assertEqual(len(rows) - 1, 12)   # 6 staff x 2 days
         self.assertEqual({r[1] for r in rows[1:]}, {"2026-09-26", "2026-09-27"})
 
     def test_export_is_not_limited_to_one_page(self):
@@ -784,6 +800,7 @@ class ExportTests(Base):
 
 
 # ==================================================================== responsiveness (static)
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class ResponsivenessTests(Base):
     """
     No browser runs in the test suite, so these guard the pieces mobile layout relies on:

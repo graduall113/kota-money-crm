@@ -211,6 +211,15 @@ def staff_remove(request, user_id):
         dest = others.filter(pk=request.POST.get("reassign_to") or 0).first()
         if choice == "cancel":
             return redirect("staff_list")
+        if choice == "reassign_delete" and (held["call_records"] or held["call_devices"] or target.attendance_records.exists()):
+            # Same protection as staff_delete: deleting the account would cascade away call devices /
+            # call records (and Attendance is PROTECT). Refuse before anything is reassigned.
+            messages.error(
+                request,
+                f"{user_label(target)} has call or attendance history that is kept for records, so the account can't be "
+                "deleted. Use 'Reassign, then deactivate' instead — deactivation fully blocks their access.",
+            )
+            return redirect("staff_remove", user_id=target.pk)
         if choice in ("reassign_deactivate", "reassign_delete"):
             if not dest:
                 messages.error(request, "Pick who should receive the records.")
@@ -554,6 +563,7 @@ def lead_create(request):
                             raise _ContactAlreadyConverted()
 
                     lead = form.save(commit=False)
+                    lead._sync_dispatch = "inline"  # queued by post_save; delivered below via send_lead_to_n8n()
                     lead.created_by = request.user
                     lead.reference_by = (contact.reference_by if contact and contact.reference_by_id else request.user)
                     owner = form.cleaned_data.get("assigned_to_user") if admin else request.user
@@ -614,8 +624,9 @@ def lead_create(request):
 @active_account_required
 def lead_edit(request, lead_id):
     """
-    Edit Lead — same LeadForm as Add New Lead. Does not re-fire the n8n
-    webhook (that only happens once, at creation).
+    Edit Lead — same LeadForm as Add New Lead, used by both My Leads and All Leads.
+    Every save queues a Google Sheet sync (crm/lead_sync.py) that UPDATES the existing
+    row for this Lead ID; it never creates a second row.
     """
     lead = access.get_visible_lead_or_404(request.user, lead_id)
     if not access.can_edit_lead(request.user, lead):
@@ -627,25 +638,36 @@ def lead_edit(request, lead_id):
         form = LeadForm(request.POST, instance=lead, is_admin=admin)
         if form.is_valid():
             changed = [f for f in form.changed_data if f != "assigned_to_user"]
-            lead = form.save(commit=False)
-            new_owner = form.cleaned_data.get("assigned_to_user") if admin else None
-            lead.save()
-            if admin and "assigned_to_user" in form.changed_data and new_owner != lead.assigned_to:
-                try:
-                    services.assign_lead(lead, new_owner, request.user, action=AssignmentHistory.ACTION_REASSIGN,
-                                         reason="Edited by admin")
-                except services.AssignmentError as exc:
-                    messages.error(request, str(exc))
-            if lead.status != old_status:
-                labels = dict(Lead.STATUS_CHOICES)
-                services.log_activity(request.user, "status", f"Status changed: {labels.get(old_status)} → {labels.get(lead.status)}", lead=lead)
-                services.log_audit(request.user, "lead_status_changed",
-                                   f"{lead.display_id}: {labels.get(old_status)} → {labels.get(lead.status)}",
-                                   {"from": old_status, "to": lead.status}, "lead", lead.pk)
-            if changed:
-                services.log_activity(request.user, "edited", "Lead edited: " + ", ".join(sorted(changed)), lead=lead)
-                services.log_audit(request.user, "lead_edited", f"{lead.display_id} edited",
-                                   {"fields": sorted(changed)}, "lead", lead.pk)
+            # One transaction: the edit + an admin re-assignment queue ONE Google Sheet sync
+            # event (same Lead ID -> the SAME Sheet row is updated), delivered after commit.
+            with transaction.atomic():
+                lead = form.save(commit=False)
+                new_owner = form.cleaned_data.get("assigned_to_user") if admin else None
+                sync_reasons = ["lead_edited"]
+                if lead.status != old_status:
+                    sync_reasons.append("status_changed")
+                if "reference_by_name" in form.changed_data:
+                    sync_reasons.append("reference_changed")
+                if "assigned_to_name" in form.changed_data:
+                    sync_reasons.append("assignment_changed")
+                lead._sync_reason = ",".join(sync_reasons)
+                lead.save()
+                if admin and "assigned_to_user" in form.changed_data and new_owner != lead.assigned_to:
+                    try:
+                        services.assign_lead(lead, new_owner, request.user, action=AssignmentHistory.ACTION_REASSIGN,
+                                             reason="Edited by admin")
+                    except services.AssignmentError as exc:
+                        messages.error(request, str(exc))
+                if lead.status != old_status:
+                    labels = dict(Lead.STATUS_CHOICES)
+                    services.log_activity(request.user, "status", f"Status changed: {labels.get(old_status)} → {labels.get(lead.status)}", lead=lead)
+                    services.log_audit(request.user, "lead_status_changed",
+                                       f"{lead.display_id}: {labels.get(old_status)} → {labels.get(lead.status)}",
+                                       {"from": old_status, "to": lead.status}, "lead", lead.pk)
+                if changed:
+                    services.log_activity(request.user, "edited", "Lead edited: " + ", ".join(sorted(changed)), lead=lead)
+                    services.log_audit(request.user, "lead_edited", f"{lead.display_id} edited",
+                                       {"fields": sorted(changed)}, "lead", lead.pk)
             messages.success(request, "Lead updated successfully.")
             return redirect("lead_detail", lead_id=lead.pk)
     else:
@@ -664,8 +686,12 @@ def lead_delete(request, lead_id):
 
     if request.method == "POST":
         customer_name, code = lead.customer_name, lead.display_id
-        lead.delete()
-        services.log_audit(request.user, "lead_deleted", f"{code} deleted ({customer_name})", {}, "lead", lead_id)
+        with transaction.atomic():  # real DELETE + audit commit together; the audit row outlives the lead
+            contact_id, batch_id = lead.contact_id, lead.import_batch_id
+            lead.delete()
+            services.log_audit(request.user, "lead_deleted", f"{code} permanently deleted ({customer_name})",
+                               {"lead_id": lead_id, "display_id": code, "customer_name": customer_name,
+                                "contact_id": contact_id, "import_batch_id": batch_id}, "lead", lead_id)
         messages.success(request, f"Lead for {customer_name} was deleted.")
         return redirect(_lead_home(request.user))
 
@@ -749,6 +775,7 @@ def lead_action(request, lead_id):
         lead.next_followup_date, lead.next_followup_time = date, time
         lead.followup_notes = request.POST.get("followup_notes", "")[:1000]
         lead.followup_status = Lead.FOLLOWUP_PENDING if date else ""
+        lead._sync_reason = "followup_changed"
         lead.save(update_fields=["next_followup_date", "next_followup_time", "followup_notes", "followup_status", "updated_at"])
         services.log_activity(user, "followup", f"Follow-up scheduled for {date:%d/%m/%Y}" if date else "Follow-up cleared", lead=lead)
         messages.success(request, "Follow-up saved.")
@@ -773,6 +800,7 @@ def lead_action(request, lead_id):
             labels = dict(Lead.STATUS_CHOICES)
             old = lead.status
             lead.status = new
+            lead._sync_reason = "status_changed"
             lead.save(update_fields=["status", "updated_at"])
             services.log_activity(user, "status", f"Status changed: {labels[old]} → {labels[new]}", lead=lead)
             services.log_audit(user, "lead_status_changed", f"{lead.display_id}: {labels[old]} → {labels[new]}",

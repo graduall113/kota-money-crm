@@ -1,5 +1,6 @@
 """Admin: Import Data (upload -> map -> validate -> configure -> import -> report)."""
 import csv
+import logging
 import os
 
 from django.contrib import messages
@@ -14,6 +15,8 @@ from .exports import _Echo, _safe
 from .forms import ImportUploadForm
 from .models import Contact, ImportBatch, ImportReviewRow, ImportRowError, Segment
 from .settings_store import get_int, get_setting
+
+logger = logging.getLogger("crm")
 
 
 @admin_required
@@ -124,7 +127,10 @@ def import_detail(request, batch_id):
         "per_staff": batch.contacts.filter(is_deleted=False).exclude(current_assigned_to=None).values("current_assigned_to__first_name", "current_assigned_to__username").annotate(n=Count("id")).order_by("-n"),
         "segments": Segment.objects.filter(is_active=True).order_by("name"),
         "removable_count": batch.contacts.filter(is_deleted=False).count(),
-        "removed_count": batch.contacts.filter(is_deleted=True).count(),
+        # contacts that would be deleted but were converted to a Lead (the Lead is kept)
+        "removable_with_leads": batch.contacts.filter(is_deleted=False, leads__isnull=False).distinct().count(),
+        # legacy: contacts hidden (not deleted) by an old-style undo, before real deletion existed
+        "legacy_hidden_count": batch.contacts.filter(is_deleted=True).count(),
         "active_page": "imports",
     })
 
@@ -180,53 +186,33 @@ def import_start(request, batch_id):
 @admin_required
 def import_undo(request, batch_id):
     """
-    Removes every contact this batch actually created (import_batch=this
-    batch — contacts that already existed and only got updated keep their
-    original import_batch and are never touched, so undo can never delete
-    data that predates the import). Soft delete only: "Restore Import"
-    below reverses it exactly.
+    Undo Import = permanently DELETE the contacts this batch created (see services.undo_import).
+    POST + CSRF only; the confirmation modal on the import page states the exact count, and the
+    server re-derives the records itself. Pre-existing / matched / updated contacts are never
+    touched, and Leads survive (Lead.contact -> NULL). The batch row stays as history.
     """
     batch = _batch(batch_id)
     if request.method != "POST":
         return redirect("import_detail", batch_id=batch.pk)
-    if batch.is_busy:
-        messages.error(request, "Wait for this import to finish before undoing it.")
+    try:
+        result = services.undo_import(batch, request.user)
+    except services.ImportUndoError as exc:
+        messages.error(request, str(exc))
         return redirect("import_detail", batch_id=batch.pk)
-    if batch.undone_at:
-        messages.error(request, "This import was already undone.")
+    except Exception:  # noqa: BLE001 — the transaction already rolled back; say so honestly
+        logger.exception("Undo import failed for batch %s", batch.pk)
+        services.log_audit(request.user, "import_undo_failed", f"Undo of import {batch.code} failed — nothing was deleted",
+                           {"batch": batch.code, "batch_id": batch.pk}, "import", batch.pk)
+        messages.error(request, "Undo failed and was rolled back — no contacts were deleted. Please try again.")
         return redirect("import_detail", batch_id=batch.pk)
-    contacts = batch.contacts.filter(is_deleted=False)
-    n = contacts.count()
-    if not n:
-        messages.error(request, "There are no imported contacts left to remove.")
-        return redirect("import_detail", batch_id=batch.pk)
-    now = timezone.now()
-    contacts.update(is_deleted=True, deleted_at=now)
-    batch.undone_at, batch.undone_by = now, request.user
-    batch.save(update_fields=["undone_at", "undone_by"])
-    services.log_audit(request.user, "import_undone", f"Import {batch.code} undone: {n:,} contacts removed",
-                       {"batch": batch.code, "count": n}, "import", batch.pk)
-    messages.success(request, f"{n:,} contact{'s' if n != 1 else ''} from this import were removed.")
-    return redirect("import_detail", batch_id=batch.pk)
-
-
-@admin_required
-def import_restore(request, batch_id):
-    """Reverses import_undo — brings back exactly the contacts it soft-deleted."""
-    batch = _batch(batch_id)
-    if request.method != "POST":
-        return redirect("import_detail", batch_id=batch.pk)
-    if not batch.undone_at:
-        messages.error(request, "This import hasn't been undone, so there's nothing to restore.")
-        return redirect("import_detail", batch_id=batch.pk)
-    contacts = batch.contacts.filter(is_deleted=True)
-    n = contacts.count()
-    contacts.update(is_deleted=False, deleted_at=None)
-    batch.undone_at, batch.undone_by = None, None
-    batch.save(update_fields=["undone_at", "undone_by"])
-    services.log_audit(request.user, "import_restored", f"Import {batch.code} restored: {n:,} contacts brought back",
-                       {"batch": batch.code, "count": n}, "import", batch.pk)
-    messages.success(request, f"{n:,} contact{'s' if n != 1 else ''} were restored.")
+    n = result["deleted"]
+    msg = f"{n:,} contact{'s' if n != 1 else ''} from this import were permanently deleted."
+    if result["leads_detached"]:
+        msg += f" {result['leads_detached']:,} converted lead(s) were kept."
+    if result["protected"]:
+        messages.warning(request, msg + f" {len(result['protected']):,} could not be deleted because other records depend on them.")
+    else:
+        messages.success(request, msg)
     return redirect("import_detail", batch_id=batch.pk)
 
 

@@ -5,18 +5,20 @@ from django.db import transaction
 from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404, redirect, render
 
-from . import analytics, attendance_verify, filters, services
+from . import analytics, attendance, attendance_verify, filters, services
 from .decorators import active_account_required, admin_required
 from .forms import DocumentTypeForm
-from .models import AttendanceEvent, AuditLog, Contact, DocumentHistory, DocumentType, ImportBatch, Lead, LeadDocument, Setting, user_label
+from .models import AttendanceEvent, AuditLog, Contact, DocumentHistory, DocumentType, Holiday, ImportBatch, Lead, LeadDocument, Setting, user_label
 from .settings_store import (
     BOOL_KEYS, DEFAULTS, get_bool, get_int, get_n8n_webhook_url, get_setting, set_setting, validate_webhook_url,
 )
 
+# Order = order of the Settings sidebar. "holidays" is a pointer to the existing Holidays screen (no duplicated
+# CRUD); "documents" is likewise a pointer to the Document Checklist manager.
 SETTINGS_SECTIONS = [
     ("account", "Account"), ("leads", "Leads & Assignment"), ("imports", "Import"), ("n8n", "n8n / Automation"),
-    ("documents", "Document Checklist"), ("security", "Security"), ("attendance", "Attendance Verification"),
-    ("data", "Data Management"),
+    ("documents", "Document Checklist"), ("attendance", "Attendance"), ("holidays", "Holidays"),
+    ("security", "Security"), ("data", "Data Management"),
 ]
 
 
@@ -24,7 +26,7 @@ SETTINGS_SECTIONS = [
 def settings_page(request):
     admin = request.user.staff_profile.is_admin
     section = request.GET.get("section") or request.POST.get("section") or "account"
-    if not admin:
+    if not admin or section not in dict(SETTINGS_SECTIONS):
         section = "account"
     if request.method == "POST" and admin:
         handler = {"leads": _save_leads, "imports": _save_imports, "n8n": _save_n8n, "security": _save_security,
@@ -42,6 +44,11 @@ def settings_page(request):
         cfg = attendance_verify.load_config()
         ctx.update({"att_problems": cfg.problems(), "att_detected_ip": attendance_verify.client_ip(request) or "unknown",
                     "att_open_events": AttendanceEvent.objects.filter(review_status="open").count()})
+    if section == "holidays" and admin:
+        today = attendance.business_date()
+        active = Holiday.objects.active()
+        ctx.update({"hol_upcoming": active.filter(start_date__gt=today).count(),
+                    "hol_current": active.covering(today).count()})
     if section == "data" and admin:
         ctx.update({"n_leads": Lead.objects.count(), "n_contacts": Contact.objects.filter(is_deleted=False).count(),
                     "n_batches": ImportBatch.objects.count(), "n_audit": AuditLog.objects.count()})

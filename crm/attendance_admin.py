@@ -23,35 +23,37 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-from . import attendance, filters, services
+from . import attendance, filters, holidays as holiday_rules, services
 from .models import Attendance, AttendanceCorrection, AttendanceEvent, user_label
 
 User = get_user_model()
 
 # ------------------------------------------------------------------ statuses
-ST_NOT_STARTED = "not_started"
-ST_WORKING = "working"
-ST_FULL_DAY = "full_day"
+ST_PRESENT = "present"
 ST_HALF_DAY = "half_day"
-ST_ENDED = "ended"
 ST_ABSENT = "absent"
-ST_AUTO_ENDED = "auto_ended"
+ST_SUNDAY = "sunday"
+ST_HOLIDAY = "holiday"
+ST_NOT_STARTED = "not_started"   # today only, while the working day is still open (never a recorded status)
+# Record filters/counters kept from the original dashboard. They are NOT day statuses (rows never show them).
+ST_WORKING = "working"           # a day that was started and has not ended yet
+ST_ENDED = "ended"               # a day that was started and has ended
+ST_AUTO_ENDED = "auto_ended"     # a day the 19:00 job / safety net ended
 
+# Display statuses are exactly PRESENT / HALF DAY / ABSENT / SUNDAY / HOLIDAY (the day-status filter adds
+# "NOT STARTED" for today only). The status itself always comes from attendance.display_status().
 STATUS_CHOICES = [
-    (ST_NOT_STARTED, "Not Started"),
-    (ST_WORKING, "Working"),
-    (ST_FULL_DAY, "Full Day"),
-    (ST_HALF_DAY, "Half Day"),
-    (ST_ENDED, "Ended"),
-    (ST_ABSENT, "Absent"),
-    (ST_AUTO_ENDED, "Auto Ended"),
+    (ST_PRESENT, "PRESENT"), (ST_HALF_DAY, "HALF DAY"), (ST_ABSENT, "ABSENT"),
+    (ST_SUNDAY, "SUNDAY"), (ST_HOLIDAY, "HOLIDAY"), (ST_NOT_STARTED, "NOT STARTED"),
+    (ST_WORKING, "Still working (filter)"), (ST_ENDED, "Day ended (filter)"), (ST_AUTO_ENDED, "Auto-ended (filter)"),
 ]
 STATUS_LABELS = dict(STATUS_CHOICES)
-# Colour of the status badge (classes already defined in style.css).
-STATUS_BADGE = {
-    ST_NOT_STARTED: "", ST_WORKING: "info", ST_FULL_DAY: "ok", ST_HALF_DAY: "warn",
-    ST_ENDED: "", ST_ABSENT: "bad", ST_AUTO_ENDED: "warn",
-}
+_KEY_FOR = {attendance.PRESENT: ST_PRESENT, attendance.HALF_DAY: ST_HALF_DAY, attendance.ABSENT: ST_ABSENT,
+            attendance.SUNDAY: ST_SUNDAY, attendance.HOLIDAY: ST_HOLIDAY, attendance.NOT_STARTED_YET: ST_NOT_STARTED}
+LEGACY_STATUS = {"full_day": ST_PRESENT}   # old bookmarked links keep working
+MAX_RANGE_DAYS = 93
+# Shown next to the normal status when a record exists on a day later declared a holiday.
+WORKED_ON_HOLIDAY_LABEL = "Worked — Holiday Declared Later"
 VERIFICATION_CHOICES = [
     (Attendance.VERIFY_VERIFIED, "Verified"),
     (Attendance.VERIFY_NOT_CHECKED, "Not checked"),
@@ -102,6 +104,7 @@ def parse_filters(params, today=None):
 
     def pick(name, allowed):
         v = (params.get(name) or "").strip()
+        v = LEGACY_STATUS.get(v, v) if name == "status" else v
         return v if v in allowed else ""
 
     return Filters(
@@ -116,16 +119,8 @@ def parse_filters(params, today=None):
 
 
 def _record_q(f):
-    """Conditions on an attendance RECORD (Attendance field names)."""
+    """Conditions on an attendance RECORD (verification / auto-ended). Status is decided per day, not here."""
     q = Q()
-    if f.status == ST_WORKING:
-        q &= Q(end_time__isnull=True)
-    elif f.status in (ST_FULL_DAY, ST_HALF_DAY):
-        q &= Q(attendance_status=f.status)
-    elif f.status == ST_ENDED:
-        q &= Q(end_time__isnull=False)
-    elif f.status == ST_AUTO_ENDED:
-        q &= Q(auto_ended=True)
     if f.verification:
         q &= Q(start_verification=f.verification)
     if f.auto_ended == "yes":
@@ -199,14 +194,10 @@ def _day_queryset(f, today, anomaly_flag):
     if f.q:
         qs = qs.filter(_search_q(f.q))
 
-    if f.status == ST_NOT_STARTED:
-        qs = qs.filter(~has_rec) if d == today else qs.none()
-    elif f.status == ST_ABSENT:
-        qs = qs.filter(~has_rec) if d < today else qs.none()
-    else:
-        rq = _record_q(f)
-        if rq:
-            qs = qs.filter(Exists(day_recs.filter(rq)))
+    qs = _status_day_filter(qs, f, d, today, has_rec, day_recs, show_virtual)
+    rq = _record_q(f)
+    if rq:
+        qs = qs.filter(Exists(day_recs.filter(rq)))
 
     anomaly = _anomaly_exists(OuterRef("pk"), d)
     if f.anomaly == "yes":
@@ -222,11 +213,86 @@ def _day_queryset(f, today, anomaly_flag):
     ).order_by("first_name", "username", "pk")
 
 
+def _status_day_filter(qs, f, d, today, has_rec, day_recs, show_virtual):
+    """Applies the status filter for ONE day, in the same priority order as attendance.display_status()."""
+    if not f.status:
+        return qs
+    if f.status == ST_WORKING:
+        return qs.filter(Exists(day_recs.filter(end_time__isnull=True)))
+    if f.status == ST_ENDED:
+        return qs.filter(Exists(day_recs.filter(end_time__isnull=False)))
+    if f.status == ST_AUTO_ENDED:
+        return qs.filter(Exists(day_recs.filter(auto_ended=True)))
+    kind = ST_SUNDAY if attendance.is_sunday(d) else (ST_HOLIDAY if holiday_rules.is_holiday(d) else "")
+    if f.status in (ST_SUNDAY, ST_HOLIDAY):
+        return qs if kind == f.status else qs.none()
+    if kind:                      # a Sunday / holiday is never present, half day, absent or "not started"
+        return qs.none()
+    day_over = d < today or (d == today and attendance._now() >= attendance.work_end_at(d))
+    short = Exists(day_recs.filter(attendance_status=Attendance.STATUS_SHORT_DAY))
+    if f.status == ST_PRESENT:
+        return qs.filter(Exists(day_recs.filter(Q(end_time__isnull=True) | Q(attendance_status=Attendance.STATUS_FULL_DAY))))
+    if f.status == ST_HALF_DAY:
+        return qs.filter(Exists(day_recs.filter(attendance_status=Attendance.STATUS_HALF_DAY)))
+    if f.status == ST_ABSENT:      # no Start Day on a finished working day, or too little worked to count
+        return qs.filter(~has_rec | short) if (day_over and show_virtual) else qs.filter(short)
+    if f.status == ST_NOT_STARTED:
+        return qs.filter(~has_rec) if (not day_over and d == today) else qs.none()
+    return qs
+
+
+def range_rows(f, today=None):
+    """
+    Range view: one Row per (staff, calendar day) for every day up to today - so working days with no
+    Start Day show ABSENT, Sundays SUNDAY and holidays HOLIDAY even though no Attendance row exists.
+    Derived on the fly (nothing is stored); capped at MAX_RANGE_DAYS days.
+    """
+    today = today or attendance.business_date()
+    lo, hi = f.date, min(f.date_to, today, f.date + datetime.timedelta(days=MAX_RANGE_DAYS - 1))
+    if hi < lo:
+        return []
+    recs = Attendance.objects.filter(work_date__gte=lo, work_date__lte=hi).select_related(
+        "start_device", "end_device", "user", "user__staff_profile")
+    by_key = {(r.user_id, r.work_date): r for r in recs}
+    users = User.objects.select_related("staff_profile").filter(
+        Q(pk__in=eligible_staff().values("pk")) | Q(pk__in={u for u, _ in by_key}))
+    if f.staff is not None:
+        users = users.filter(pk=f.staff)
+    if f.q:
+        users = users.filter(_search_q(f.q))
+    users = list(users.order_by("first_name", "username", "pk"))
+    hmap = holiday_rules.holiday_map(lo, hi)
+    rows, day = [], hi
+    while day >= lo:
+        joined_before = _next_day_start(day)
+        for u in users:
+            rec = by_key.get((u.pk, day))
+            if rec is None and u.date_joined >= joined_before:
+                continue
+            rows.append(Row(u, day, rec, today, holiday=_first(hmap, day)))
+        day -= datetime.timedelta(days=1)
+    if f.status == ST_WORKING:
+        rows = [r for r in rows if r.rec and r.rec.end_time is None]
+    elif f.status == ST_ENDED:
+        rows = [r for r in rows if r.rec and r.rec.end_time is not None]
+    elif f.status == ST_AUTO_ENDED:
+        rows = [r for r in rows if r.auto_ended]
+    elif f.status:
+        rows = [r for r in rows if r.status == f.status]
+    if f.verification:
+        rows = [r for r in rows if r.rec and r.rec.start_verification == f.verification]
+    if f.auto_ended:
+        rows = [r for r in rows if bool(r.auto_ended) == (f.auto_ended == "yes")]
+    attach_anomalies(rows)
+    if f.anomaly:
+        rows = [r for r in rows if r.has_anomaly == (f.anomaly == "yes")]
+    return rows
+
+
 def _record_queryset(f, anomaly_flag):
     qs = Attendance.objects.filter(work_date__gte=f.date, work_date__lte=f.date_to).select_related(
         "user", "user__staff_profile", "start_device", "end_device")
-    if f.status in (ST_NOT_STARTED, ST_ABSENT):
-        return qs.none()  # "no record" states only exist in the single-day view
+    # NOTE: the range view now uses range_rows(); this record-only queryset is kept for compatibility.
     if f.staff is not None:
         qs = qs.filter(user_id=f.staff)
     if f.q:
@@ -248,10 +314,14 @@ def _record_queryset(f, anomaly_flag):
 class Row:
     """One table/export row: a staff member on a date, with their record if any."""
 
-    def __init__(self, user, work_date, rec, today, has_anomaly=False):
+    def __init__(self, user, work_date, rec, today, has_anomaly=False, holiday=None):
         self.user, self.work_date, self.rec, self.today = user, work_date, rec, today
         self.has_anomaly = has_anomaly
+        self.holiday = holiday  # the ACTIVE holiday covering work_date, or None
         self.anomaly_types = []
+        # Snapshot the status when the row is built, so a page/export never shows two different
+        # statuses for the same row if the clock crosses the end of the working day while rendering.
+        self._display = attendance.display_status(work_date, rec, self.holiday, today)
 
     # -- identity
     @property
@@ -263,27 +333,51 @@ class Row:
         profile = getattr(self.user, "staff_profile", None)
         return profile.reference_code if profile else ""
 
-    # -- status
+    # -- status (ONE source: attendance.display_status; nothing is re-derived here)
+    @property
+    def display(self):
+        return self._display
+
     @property
     def status(self):
-        r = self.rec
-        if r is None:
-            return ST_NOT_STARTED if self.work_date >= self.today else ST_ABSENT
-        if r.end_time is None:
-            return ST_WORKING
-        if r.attendance_status == Attendance.STATUS_FULL_DAY:
-            return ST_FULL_DAY
-        if r.attendance_status == Attendance.STATUS_HALF_DAY:
-            return ST_HALF_DAY
-        return ST_ENDED  # a short day
+        return _KEY_FOR[self.display]
 
     @property
     def status_label(self):
-        return STATUS_LABELS[self.status]
+        return self.display
 
     @property
     def badge(self):
-        return STATUS_BADGE[self.status]
+        """Status colour class (.badge.present / .half / .absent / .sunday / .holiday - see style.css)."""
+        return attendance.BADGE_CLASS[self.display]
+
+    @property
+    def row_class(self):
+        return f"att-row-{self.badge}"
+
+    # -- holiday
+    @property
+    def holiday_period(self):
+        """'20/10/2026 – 27/10/2026' (or the single date) of the holiday on this row's date, else ''."""
+        return attendance.holiday_label(self.holiday) if self.holiday is not None else ""
+
+    @property
+    def holiday_name(self):
+        return self.holiday.name if self.holiday is not None else ""
+
+    @property
+    def worked_on_holiday(self):
+        """A record exists on a day that is a holiday: the record is kept and flagged, never deleted."""
+        return self.rec is not None and self.holiday is not None
+
+    @property
+    def holiday_note(self):
+        return WORKED_ON_HOLIDAY_LABEL if self.worked_on_holiday else ""
+
+    @property
+    def status_export_label(self):
+        """Status text for CSV/Excel: the normal status, plus the holiday note when there is one."""
+        return f"{self.status_label} ({self.holiday_note})" if self.worked_on_holiday else self.status_label
 
     @property
     def auto_ended(self):
@@ -331,14 +425,35 @@ class Row:
 def rows_for_page(objects, f, today=None):
     """Turns a page of Users/Attendance into Rows and attaches each row's anomaly types (one query)."""
     today = today or attendance.business_date()
+    objects = list(objects)
+    if f.is_range:                     # range_rows() already produced finished Rows (anomalies attached)
+        return objects
+    hmap = _holidays_for(f, objects)
     rows = []
     for o in objects:
         if f.is_range:
-            rows.append(Row(o.user, o.work_date, o, today))
+            rows.append(Row(o.user, o.work_date, o, today, holiday=_first(hmap, o.work_date)))
         else:
-            rows.append(Row(o, f.date, (o._day_recs[0] if o._day_recs else None), today))
+            rows.append(Row(o, f.date, (o._day_recs[0] if o._day_recs else None), today, holiday=_first(hmap, f.date)))
     attach_anomalies(rows)
     return rows
+
+
+def _first(hmap, day):
+    found = hmap.get(day)
+    return found[0] if found else None
+
+
+def _holidays_for(f, objects=None):
+    """{date: [Holiday]} for the dates a table/export covers - a single query."""
+    if not f.is_range:
+        return holiday_rules.holiday_map(f.date, f.date)
+    if objects is not None:
+        if not objects:
+            return {}
+        days = [o.work_date for o in objects]
+        return holiday_rules.holiday_map(min(days), max(days))
+    return holiday_rules.holiday_map(f.date, f.date_to)
 
 
 def _day_bounds(lo, hi):
@@ -379,12 +494,17 @@ class RowStream:
         self.today = today or attendance.business_date()
 
     def iterator(self, chunk_size=2000):
+        if self.f.is_range:
+            yield from range_rows(self.f, self.today)
+            return
         qs = build_queryset(self.f, self.today, anomaly_flag=True)
+        hmap = _holidays_for(self.f)
         for o in qs.iterator(chunk_size=chunk_size):
             if self.f.is_range:
-                yield Row(o.user, o.work_date, o, self.today, o.anomaly_flag)
+                yield Row(o.user, o.work_date, o, self.today, o.anomaly_flag, holiday=_first(hmap, o.work_date))
             else:
-                yield Row(o, self.f.date, (o._day_recs[0] if o._day_recs else None), self.today, o.anomaly_flag)
+                yield Row(o, self.f.date, (o._day_recs[0] if o._day_recs else None), self.today, o.anomaly_flag,
+                          holiday=_first(hmap, self.f.date))
 
 
 def export_columns():
@@ -400,7 +520,7 @@ def export_columns():
         ("Start", lambda r: hhmm(r.rec.start_time) if r.rec else ""),
         ("End", lambda r: hhmm(r.rec.end_time) if r.rec else ""),
         ("Worked Hours", lambda r: r.worked_hours),
-        ("Status", lambda r: r.status_label),
+        ("Status", lambda r: r.status_export_label),
         ("Auto Ended", lambda r: "Yes" if r.auto_ended else "No"),
         ("Verification", lambda r: r.verification_label),
         ("Anomaly", lambda r: "Yes" if r.has_anomaly else "No"),
@@ -409,6 +529,7 @@ def export_columns():
 
 # ------------------------------------------------------------------ today's cards
 def today_summary(today=None):
+    """Cards for today. Counts follow the table's rule: Sunday/holiday first, then the day's records."""
     today = today or attendance.business_date()
     eligible_ids = eligible_staff().values("pk")
     total = eligible_staff().count()
@@ -416,16 +537,26 @@ def today_summary(today=None):
         started=Count("id"),
         working=Count("id", filter=Q(end_time__isnull=True)),
         ended=Count("id", filter=Q(end_time__isnull=False)),
-        full_day=Count("id", filter=Q(attendance_status=Attendance.STATUS_FULL_DAY)),
+        present=Count("id", filter=Q(end_time__isnull=True) | Q(attendance_status=Attendance.STATUS_FULL_DAY)),
         half_day=Count("id", filter=Q(attendance_status=Attendance.STATUS_HALF_DAY)),
+        short=Count("id", filter=Q(attendance_status=Attendance.STATUS_SHORT_DAY)),
         auto_ended=Count("id", filter=Q(auto_ended=True)),
     )
     anomalies = build_queryset(Filters(date=today, anomaly="yes"), today).filter(pk__in=eligible_ids).count()
+    holiday = holiday_rules.holiday_for(today)
+    sunday = attendance.is_sunday(today)
+    waiting = max(total - counts["started"], 0)          # staff with no record yet
+    day_over = attendance._now() >= attendance.work_end_at(today)
+    hol = holiday is not None and not sunday             # a holiday only replaces "no Start Day"
     return {
-        "date": today, "total": total, "started": counts["started"],
-        "not_started": max(total - counts["started"], 0),
-        "working": counts["working"], "ended": counts["ended"], "full_day": counts["full_day"],
-        "half_day": counts["half_day"], "auto_ended": counts["auto_ended"], "anomalies": anomalies,
+        "date": today, "total": total, "started": counts["started"], "holiday": holiday, "is_sunday": sunday,
+        "working": counts["working"], "ended": counts["ended"],
+        "present": 0 if sunday else counts["present"], "half_day": 0 if sunday else counts["half_day"],
+        "absent": 0 if sunday else counts["short"] + (waiting if (day_over and holiday is None) else 0),
+        "sunday": total if sunday else 0,
+        "on_holiday": waiting if hol else 0,
+        "not_started": 0 if (sunday or holiday is not None or day_over) else waiting,
+        "auto_ended": counts["auto_ended"], "anomalies": anomalies,
     }
 
 
@@ -459,9 +590,9 @@ class CorrectionError(Exception):
 
 _HHMM = re.compile(r"^(\d{1,2}):(\d{2})(?::\d{2})?$")
 CORRECTABLE_STATUSES = {
-    Attendance.STATUS_FULL_DAY: "Full Day",
-    Attendance.STATUS_HALF_DAY: "Half Day",
-    Attendance.STATUS_SHORT_DAY: "Short Day",
+    Attendance.STATUS_FULL_DAY: "PRESENT",
+    Attendance.STATUS_HALF_DAY: "HALF DAY",
+    Attendance.STATUS_SHORT_DAY: "ABSENT",
 }
 
 

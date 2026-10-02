@@ -7,11 +7,13 @@
   {% if action == "remove_from_segment" %}<p class="muted">Contacts stay in Contacts and keep every lead and history — only their membership in this segment is removed.</p>{% endif %}
   {% if from_names %}<p class="muted">Currently held by: {% for who, n in from_names.items %}{{ who }} ({{ n }}){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   {% if params.method and params.method != 'one' %}<p class="muted">Method: {{ params.method }}</p>{% endif %}
-  {% if destructive %}<p style="color:#b3401f;">This permanently deletes the selected records and cannot be undone.</p>{% endif %}
+  {% if destructive %}<p style="color:#b3401f;"><strong>Delete {{ count }} selected {{ model_name }}{{ count|pluralize }} permanently?</strong> This permanently removes these CRM records from the database. This action cannot be undone.</p>
+  {% if model_name == 'contact' and leads_linked %}<p class="muted">{{ leads_linked }} of these contact{{ leads_linked|pluralize }} {{ leads_linked|pluralize:"has,have" }} been converted to a lead. Those leads are <strong>kept</strong> (with all their own data) — they just stop pointing at the deleted contact.</p>{% endif %}
+  <p class="muted">Any record that other data depends on is skipped, never force-deleted, and listed afterwards.</p>{% endif %}
   <form method="post" action="{% url 'bulk_action' model_name %}">{% csrf_token %}
     {% for key, values in post.lists %}{% if key != 'csrfmiddlewaretoken' and key != 'confirmed' %}{% for v in values %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}{% endif %}{% endfor %}
     <input type="hidden" name="confirmed" value="1">
-    <button class="{% if destructive %}btn-danger{% else %}btn-primary btn-inline{% endif %}">Yes, {{ verb }} {{ count }}</button>
+    <button class="{% if destructive %}btn-danger{% else %}btn-primary btn-inline{% endif %}">{% if destructive %}Delete Permanently{% else %}Yes, {{ verb }} {{ count }}{% endif %}</button>
     <a class="link" style="margin-left:14px;" href="{% if model_name == 'lead' %}{% url 'all_leads' %}{% else %}{% url 'contacts' %}{% endif %}">Cancel</a>
   </form></div></div>
 {% endblock %}

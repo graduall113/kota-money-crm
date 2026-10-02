@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header">
   <h1>Delete Lead</h1>
-  <p>This cannot be undone.</p>
+  <p>This permanently removes the lead from the database. This action cannot be undone.</p>
 </div>
 
 <div class="panel" style="max-width:520px;">
@@ -18,7 +18,7 @@
 
     <form method="post">
       {% csrf_token %}
-      <button type="submit" class="btn-danger">Yes, delete this lead</button>
+      <button type="submit" class="btn-danger">Delete Permanently</button>
       <a href="{% url 'lead_detail' lead.pk %}" class="link" style="margin-left:14px; font-size:13.5px;">Cancel</a>
     </form>
   </div>

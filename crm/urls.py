@@ -1,7 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from . import api, calling_api, views, views_admin, views_attendance, views_calling, views_contacts, views_import, views_segments, views_staff_attendance
+from . import api, calling_api, views, views_admin, views_attendance, views_calling, views_contacts, views_import, views_holidays, views_segments, views_staff_attendance, views_activity, staff_activity_api
 
 urlpatterns = [
     # Auth
@@ -42,6 +42,9 @@ urlpatterns = [
     path("api/calling/pair/", calling_api.pair_device, name="api_calling_pair"),
     path("api/calling/sync/", calling_api.sync_calls, name="api_calling_sync"),
     path("api/calling/daily/", calling_api.daily_report, name="api_calling_daily"),
+    # API — Android Staff Activity live-call + warning channel (separate from calling sync; see crm/staff_activity_api.py)
+    path("api/staff-activity/live-call/", staff_activity_api.live_call_event, name="api_staff_activity_live_call"),
+    path("api/staff-activity/status/", staff_activity_api.device_status, name="api_staff_activity_status"),
 
     # Staff attendance (Start Day / End Day) — POST-only actions, server-side state
     path("attendance/", views_attendance.attendance_page, name="attendance"),
@@ -61,6 +64,19 @@ urlpatterns = [
     path("staff-attendance/export/", views_staff_attendance.staff_attendance_export, name="staff_attendance_export"),
     path("staff-attendance/<int:pk>/", views_staff_attendance.staff_attendance_detail, name="staff_attendance_detail"),
     path("staff-attendance/<int:pk>/correct/", views_staff_attendance.staff_attendance_correct, name="staff_attendance_correct"),
+
+    # Staff CRM activity monitoring (mobile heartbeat / inactivity) + lunch
+    path("activity/signal/", views_activity.activity_signal, name="activity_signal"),
+    path("activity/lunch/start/", views_activity.lunch_start, name="lunch_start"),
+    path("activity/lunch/end/", views_activity.lunch_end, name="lunch_end"),
+    path("staff-activity/", views_activity.staff_activity_board, name="staff_activity"),
+
+    # Holidays - admin only, enforced in the views (admin_required -> 403 for staff)
+    path("holidays/", views_holidays.holiday_list, name="holiday_list"),
+    path("holidays/new/", views_holidays.holiday_create, name="holiday_create"),
+    path("holidays/<int:pk>/edit/", views_holidays.holiday_edit, name="holiday_edit"),
+    path("holidays/<int:pk>/delete/", views_holidays.holiday_delete, name="holiday_delete"),
+    path("holidays/<int:pk>/toggle/", views_holidays.holiday_toggle, name="holiday_toggle"),
 
     # CRM — dashboard + leads
     path("", views.dashboard, name="dashboard"),
@@ -117,7 +133,6 @@ urlpatterns = [
     path("imports/<int:batch_id>/start/", views_import.import_start, name="import_start"),
     path("imports/<int:batch_id>/revalidate/", views_import.import_revalidate, name="import_revalidate"),
     path("imports/<int:batch_id>/undo/", views_import.import_undo, name="import_undo"),
-    path("imports/<int:batch_id>/restore/", views_import.import_restore, name="import_restore"),
     path("imports/<int:batch_id>/review/", views_import.import_review, name="import_review"),
     path("imports/<int:batch_id>/errors/", views_import.import_errors, name="import_errors"),
 

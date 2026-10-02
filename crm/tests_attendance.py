@@ -37,6 +37,7 @@ class Clock:
         self._p.stop()
 
 
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class Base(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user("boss", password="pw", is_superuser=True, is_staff=True)
@@ -54,6 +55,7 @@ class Base(TestCase):
             return attendance.end_day(user or self.staff)
 
 
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class StateMachineTests(Base):
     def test_start_records_server_time_and_work_date(self):
         rec = self.start(at(10, 5))
@@ -116,6 +118,7 @@ class StateMachineTests(Base):
         self.assertEqual(Attendance.objects.filter(user=self.staff).count(), 2)
 
 
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class CalculationTests(Base):
     def _run(self, s, e, day=27):
         self.start(s)
@@ -151,6 +154,7 @@ class CalculationTests(Base):
         self.assertEqual(attendance.fmt_clock(rec.end_time), "07:00 PM")
 
 
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class AutoEndTests(Base):
     def test_auto_end_all_active_at_seven(self):
         self.start(at(10, 5)); self.start(at(10, 30), self.other)
@@ -197,6 +201,7 @@ class AutoEndTests(Base):
         self.assertTrue(Attendance.objects.get().auto_ended)
 
 
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class DatabaseConstraintTests(Base):
     def test_one_record_per_user_per_day_enforced_by_db(self):
         Attendance.objects.create(user=self.staff, work_date=datetime.date(2026, 9, 27), start_time=at(10))
@@ -212,6 +217,7 @@ class DatabaseConstraintTests(Base):
                                       end_time=at(10), worked_duration=datetime.timedelta(0), attendance_status="short_day")
 
 
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class HttpTests(Base):
     """Views, CSRF, permissions, lockout and direct-URL bypass."""
 
@@ -348,13 +354,15 @@ class HttpTests(Base):
         self.assertIn("+ Add New Lead", html)  # functionality kept: reachable from the page header
         self.post("attendance_end", at(19, 0))
         html = self.get("attendance", at(19, 1)).content.decode()
-        for s in ["Day Ended", "Started: 10:05 AM", "Ended: 07:00 PM", "Duration: 08h 55m", "Status: Full Day"]:
+        for s in ["Day Ended", "Started: 10:05 AM", "Ended: 07:00 PM", "Duration: 08h 55m", "Status: PRESENT"]:
             self.assertIn(s, html)
 
-    def test_admin_keeps_quick_add_lead_and_sees_no_attendance_widget(self):
+    def test_admin_sidebar_hides_add_lead_but_page_header_keeps_it(self):
         a = Client(); a.force_login(self.admin)
         html = self.get("dashboard", at(9), client=a).content.decode()
-        self.assertIn('class="nav-add-lead', html)
+        self.assertNotIn("nav-add-lead", html)          # admin left-sidebar button hidden
+        self.assertIn("+ Add New Lead", html)           # dashboard header button preserved
+        self.assertNotIn("attWidget", html)
         self.assertNotIn("attWidget", html)
 
     def test_mobile_responsive_rules_present(self):
@@ -415,6 +423,7 @@ class ConcurrencyTests(TransactionTestCase):
         self.assertEqual((rec.end_time, rec.worked_duration), (at(15), datetime.timedelta(hours=5)))
 
 
+@override_settings(ATTENDANCE_WEEKLY_OFF_WEEKDAY=None)  # legacy fixtures treat Sunday 27/09/2026 as a normal day; Sunday is tested in tests_attendance_status
 class KillSwitchTests(Base):
     @override_settings(ATTENDANCE_ENFORCED=False)
     def test_switch_off_never_locks_staff(self):

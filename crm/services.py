@@ -13,6 +13,7 @@ from django.db.models import Count, F, IntegerField, OuterRef, Q, Subquery, Valu
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from . import lead_sync
 from .models import (
     Activity,
     AssignmentHistory,
@@ -83,6 +84,7 @@ def assign_lead(lead, to_user, by, action=AssignmentHistory.ACTION_ASSIGN, reaso
     lead.assigned_to = to_user
     if lead.original_assigned_to_id is None and to_user is not None:
         lead.original_assigned_to = to_user
+    lead._sync_reason = "assignment_changed"  # -> Lead post_save queues the Sheet sync
     lead.save(update_fields=["assigned_to", "original_assigned_to", "updated_at"])
     AssignmentHistory.objects.create(
         lead=lead, action=action, from_user=old, to_user=to_user,
@@ -166,6 +168,8 @@ def _bulk_assign_chunk(model, pks, to_user, by, action, reason):
         # first-ever assignee is remembered once and never overwritten
         if to_user:
             model.objects.filter(pk__in=ids, original_assigned_to__isnull=True).update(original_assigned_to=to_user)
+        if model is Lead:  # queryset.update() fires no signal: queue the Sheet sync explicitly
+            lead_sync.enqueue_many(ids, "assignment_changed")
         AssignmentHistory.objects.bulk_create(history, batch_size=1000)
         if activities:
             Activity.objects.bulk_create(activities, batch_size=1000)
@@ -251,6 +255,8 @@ def bulk_set_status(model, pks, status, by, progress=None):
                 for pk, old in rows
             ], batch_size=1000)
         model.objects.filter(pk__in=[pk for pk, _ in rows]).update(status=status, updated_at=timezone.now())
+        if model is Lead:
+            lead_sync.enqueue_many([pk for pk, _ in rows], "status_changed")
         changed += len(rows)
         if progress:
             progress(len(chunk))
@@ -264,19 +270,143 @@ def bulk_set_followup(model, pks, date, time, notes, by, progress=None):
             next_followup_date=date, next_followup_time=time, followup_notes=notes,
             followup_status="pending", updated_at=timezone.now(),
         )
+        if model is Lead:
+            lead_sync.enqueue_many(chunk, "followup_changed")
         if progress:
             progress(len(chunk))
     return len(pks)
 
 
-def bulk_delete(model, pks, by, progress=None):
-    deleted = 0
+# ---------------------------------------------------------------- permanent deletion
+class ImportUndoError(Exception):
+    """Undo Import refused up-front (busy / already undone). Nothing was changed."""
+
+
+def _delete_chunk(model, chunk):
+    """
+    Physically deletes one chunk. Returns (deleted_ids, protected) where protected is
+    {pk: reason}. Relationships are never forced: Django's collector applies each FK's own
+    on_delete (Contact -> Lead.contact is SET_NULL, so a Lead can never be cascade-deleted
+    from its Contact). If a PROTECT/RESTRICT FK blocks the chunk, it is retried record by
+    record inside savepoints so only the genuinely blocked records are skipped and named.
+    """
+    from django.db.models import ProtectedError, RestrictedError
+
+    try:
+        with transaction.atomic():  # savepoint when already inside a transaction
+            model.objects.filter(pk__in=chunk).delete()
+        return list(chunk), {}
+    except (ProtectedError, RestrictedError):
+        deleted, protected = [], {}
+        for pk in chunk:
+            try:
+                with transaction.atomic():
+                    model.objects.filter(pk=pk).delete()
+                deleted.append(pk)
+            except (ProtectedError, RestrictedError) as exc:
+                protected[pk] = f"Referenced by {len(exc.protected_objects if hasattr(exc, 'protected_objects') else exc.restricted_objects)} protected record(s)"
+        return deleted, protected
+
+
+def delete_records(model, pks, progress=None):
+    """
+    Permanently deletes `pks` of `model` (Lead or Contact) in chunks. Call it inside
+    transaction.atomic() for all-or-nothing behaviour (bulk_delete / undo_import do).
+    Returns {"selected", "deleted", "protected": {pk: reason}, "leads_detached"}.
+    leads_detached = Leads that survive because their Contact was deleted (Lead.contact -> NULL).
+    """
+    pks = list(pks)
+    result = {"selected": len(pks), "deleted": 0, "protected": {}, "leads_detached": 0}
     for i in range(0, len(pks), CHUNK):
         chunk = pks[i:i + CHUNK]
-        deleted += model.objects.filter(pk__in=chunk).delete()[0]
+        if model is Contact:
+            result["leads_detached"] += Lead.objects.filter(contact_id__in=chunk).count()
+        ok, protected = _delete_chunk(model, chunk)
+        result["deleted"] += len(ok)
+        result["protected"].update(protected)
+        if model is Contact and protected:  # blocked contacts keep their Leads attached
+            result["leads_detached"] -= Lead.objects.filter(contact_id__in=list(protected)).count()
         if progress:
             progress(len(chunk))
-    return deleted
+    return result
+
+
+def bulk_delete(model, pks, by, progress=None):
+    """
+    Bulk "Delete": a real database DELETE of every eligible selected record, all inside ONE
+    transaction — an unexpected failure rolls the whole thing back (nothing half-deleted).
+    Records blocked by a protected relationship are skipped, named in the result, and never
+    reported as deleted. Writes the audit entry in the same transaction.
+    """
+    name = "lead" if model is Lead else "contact"
+    with transaction.atomic():
+        result = delete_records(model, pks, progress)
+        skipped = len(result["protected"])
+        summary = f"Bulk deleted {result['deleted']:,} of {result['selected']:,} selected {name}s permanently"
+        if skipped:
+            summary += f" — {skipped:,} skipped (protected)"
+        details = {
+            "selected": result["selected"], "deleted": result["deleted"], "protected": skipped,
+            "deleted_ids": [pk for pk in pks if pk not in result["protected"]][:200],
+            "protected_ids": list(result["protected"])[:200], "protected_reasons": dict(list(result["protected"].items())[:50]),
+            "ids_truncated": len(pks) > 200,
+        }
+        if model is Contact:
+            details["leads_kept_detached"] = result["leads_detached"]
+        log_audit(by, "bulk_delete", summary, details, name, "")
+    return result
+
+
+def undo_import(batch, by):
+    """
+    Undo Import = PERMANENT deletion of the contacts this batch CREATED, and nothing else.
+
+    Source of truth is Contact.import_batch, which the importer sets only on contacts it
+    creates; pre-existing contacts that were matched, skipped or merely updated keep their
+    own import_batch (or none) and are never touched. Contacts already soft-deleted by an
+    old-style undo (is_deleted=True) are legacy rows and are left alone.
+
+    Converted contacts: the Lead survives with Lead.contact -> NULL (SET_NULL), keeping its own
+    copied customer data and Lead.import_batch. The ImportBatch row stays as history.
+    Everything — deletes, batch bookkeeping, audit — commits or rolls back together.
+    """
+    from .models import ImportBatch, ImportReviewRow
+
+    with transaction.atomic():
+        locked = ImportBatch.objects.select_for_update().get(pk=batch.pk)
+        if locked.is_busy:
+            raise ImportUndoError("Wait for this import to finish before undoing it.")
+        if locked.undone_at:
+            raise ImportUndoError("This import was already undone.")
+        ids = list(Contact.objects.filter(import_batch=locked, is_deleted=False).order_by("pk").values_list("pk", flat=True))
+        if not ids:
+            raise ImportUndoError("There are no imported contacts left to remove.")
+        result = delete_records(Contact, ids)
+        # Duplicate-review rows this batch had parked can no longer be applied meaningfully.
+        closed = locked.review_rows.filter(applied=False).update(applied=True, decision=ImportReviewRow.DECISION_SKIP)
+        now = timezone.now()
+        locked.undone_at, locked.undone_by = now, by
+        locked.undo_selected_count, locked.undo_deleted_count = result["selected"], result["deleted"]
+        locked.undo_protected_count, locked.undo_leads_detached = len(result["protected"]), result["leads_detached"]
+        fields = ["undone_at", "undone_by", "undo_selected_count", "undo_deleted_count",
+                  "undo_protected_count", "undo_leads_detached"]
+        if locked.status == ImportBatch.STATUS_REVIEW:
+            locked.status, locked.completed_at = ImportBatch.STATUS_COMPLETED, now
+            fields += ["status", "completed_at"]
+        locked.save(update_fields=fields)
+        summary = f"Import {locked.code} undone — {result['deleted']:,} of {result['selected']:,} contacts permanently deleted"
+        if result["protected"]:
+            summary += f", {len(result['protected']):,} kept (protected)"
+        if result["leads_detached"]:
+            summary += f", {result['leads_detached']:,} converted lead(s) kept"
+        log_audit(by, "import_undone", summary, {
+            "batch": locked.code, "batch_id": locked.pk, "originally_created": locked.imported_count,
+            "selected": result["selected"], "deleted": result["deleted"],
+            "protected": len(result["protected"]), "protected_ids": list(result["protected"])[:200],
+            "converted_leads_kept": result["leads_detached"], "review_rows_closed": closed,
+            "undone_at": now.isoformat(),
+        }, "import", locked.pk)
+    return result
 
 
 # ---------------------------------------------------------------- background jobs
@@ -509,3 +639,55 @@ def get_or_create_segment(name, by):
         segment = Segment.objects.create(name=name, created_by=by)
         log_audit(by, "segment_created", f"Segment '{segment.name}' created", {}, "segment", segment.pk)
     return segment
+
+
+# ---------------------------------------------------------------- Contact edit -> its converted Lead
+# Contact field -> the Lead field that mirrors it. Only fields the Contact edit form actually
+# CHANGED are pushed, so an old Contact value can never overwrite a newer Lead edit.
+CONTACT_TO_LEAD_FIELDS = {
+    "name": "customer_name", "phone": "contact_number", "work_profile": "work_profile", "income": "income",
+    "requirement": "requirement", "loan_amount": "loan_amount", "email": "email", "city": "city", "source": "source",
+}
+
+
+def linked_lead_for_contact(contact):
+    """The Lead this Contact was converted into (Lead.contact), or None. Same pick as views._converted_lead_for."""
+    return Lead.objects.filter(contact_id=contact.pk).order_by("-created_at", "-id").first()
+
+
+def propagate_contact_to_lead(contact, changed_fields, by=None):
+    """
+    Called after a Contact edit is saved. If the Contact was already converted, the EXISTING Lead
+    (same Lead ID, e.g. KM-1050) receives the changed shared fields and is re-synced to the SAME
+    Google Sheet row. Never creates a Lead, never allocates a new Lead ID, never appends a row.
+    Returns the Lead, or None when the Contact was never converted.
+    """
+    lead = linked_lead_for_contact(contact)
+    if lead is None:
+        return None
+    updates = {}
+    for cfield in changed_fields:
+        lfield = CONTACT_TO_LEAD_FIELDS.get(cfield)
+        if not lfield:
+            continue
+        value = getattr(contact, cfield)
+        if lfield in ("customer_name", "contact_number") and not value:
+            continue  # required on a Lead
+        if lfield == "loan_amount" and value is None:
+            continue  # a cleared Contact amount must not blank the Lead's
+        if lfield == "contact_number" and len(str(value)) > Lead._meta.get_field("contact_number").max_length:
+            logger.warning("Contact %s phone too long for Lead %s; not copied", contact.pk, lead.pk)
+            continue
+        if getattr(lead, lfield) != value:
+            updates[lfield] = value
+    lead._sync_reason = "contact_edited"
+    if updates:
+        for field, value in updates.items():
+            setattr(lead, field, value)
+        lead.save(update_fields=[*updates, "updated_at"])  # post_save queues the sync
+        log_activity(by, "edited", "Updated from contact edit: " + ", ".join(sorted(updates)), lead=lead)
+    # Saving a converted Contact always re-checks the Sheet row (a no-op send is skipped if
+    # nothing synced differs). Coalesces with the event the save above just queued.
+    lead_sync.enqueue_lead_sync(lead, "contact_edited")
+    transaction.on_commit(lead_sync.schedule_drain)
+    return lead

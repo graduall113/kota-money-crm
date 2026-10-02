@@ -1,10 +1,12 @@
+import datetime
+
 from django.contrib import messages
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import attendance, attendance_verify as verify_mod, filters, services
+from . import attendance, attendance_verify as verify_mod, filters, holidays as holiday_rules, services
 from .decorators import active_account_required, admin_required
 from .models import Attendance, AttendanceEvent, TrustedDevice
 
@@ -22,6 +24,44 @@ def _attendance_staff():
     return services.active_staff().exclude(is_superuser=True).exclude(staff_profile__role="admin")
 
 
+HISTORY_DAYS = 14
+
+
+def staff_history_rows(user, today):
+    """
+    Last HISTORY_DAYS calendar days (newest first), one row per DAY - not per Attendance row - so a
+    working day with no Start Day shows ABSENT, Sundays show SUNDAY and holidays show HOLIDAY.
+    Status comes from attendance.display_status(); nothing is calculated in the template and no rows are stored.
+    """
+    first = max(today - datetime.timedelta(days=HISTORY_DAYS - 1), timezone.localtime(user.date_joined, attendance.business_tz()).date())
+    records = {r.work_date: r for r in Attendance.objects.filter(user=user, work_date__gte=first, work_date__lte=today)}
+    holiday_days = holiday_rules.holiday_map(first, today)
+    rows, day = [], today
+    while day >= first:
+        rec, found = records.get(day), holiday_days.get(day)
+        holiday = found[0] if found else None
+        status = attendance.display_status(day, rec, holiday, today)
+        if status == attendance.NOT_STARTED_YET and rec is None:
+            day -= datetime.timedelta(days=1)
+            continue   # today, day still in progress and nothing started: no row yet
+        rows.append({
+            "date": day,
+            "started": attendance.fmt_clock(rec.start_time) if rec else "—",
+            "ended": (attendance.fmt_clock(rec.end_time) if rec.end_time else "—") if rec else "—",
+            "duration": (attendance.fmt_duration(rec.worked_duration) if rec.worked_duration is not None else "—") if rec else "—",
+            "status": status, "badge": attendance.BADGE_CLASS[status],
+            "auto_ended": bool(rec and rec.auto_ended),
+            "override": bool(rec and rec.start_verification == Attendance.VERIFY_OVERRIDE),
+            "is_holiday": status == attendance.HOLIDAY,
+            "holiday_name": holiday.name if holiday else "",
+            "holiday_label": attendance.holiday_label(holiday) if holiday else "",
+            "holiday_later": bool(rec and holiday),   # worked on a day later declared a holiday
+            "row_class": f"att-row-{attendance.BADGE_CLASS[status]}",
+        })
+        day -= datetime.timedelta(days=1)
+    return rows
+
+
 # ------------------------------------------------------------------ staff: page
 @active_account_required
 def attendance_page(request):
@@ -29,23 +69,13 @@ def attendance_page(request):
     if blocked:
         return blocked
     state, record = attendance.request_state(request)
-    history = Attendance.objects.filter(user=request.user).order_by("-work_date")[:10]
-    rows = [
-        {
-            "date": r.work_date,
-            "started": attendance.fmt_clock(r.start_time),
-            "ended": attendance.fmt_clock(r.end_time) if r.end_time else "—",
-            "duration": attendance.fmt_duration(r.worked_duration) if r.worked_duration is not None else "—",
-            "status": r.get_attendance_status_display(),
-            "auto_ended": r.auto_ended,
-            "override": r.start_verification == Attendance.VERIFY_OVERRIDE,
-        }
-        for r in history
-    ]
+    today = attendance.business_date()
+    rows = staff_history_rows(request.user, today)
     cfg = verify_mod.load_config()
     device, _problem = verify_mod.resolve_device(request, request.user)
     return render(request, "attendance/attendance.html", {
         "active_page": "attendance", "history": rows,
+        "holiday": holiday_rules.holiday_for(today),
         "verify_geofence": cfg.geofence_active, "verify_ip": cfg.ip_active,
         "verify_device": cfg.device_active, "device_trusted": device is not None,
     })
@@ -71,6 +101,14 @@ def attendance_start(request):
             exc.message, ev,
         )
         messages.error(request, exc.message)
+        return redirect("attendance")
+
+    # 1b) Holiday: refused before throttling / verification (a blocked holiday attempt is not a
+    #     verification failure). attendance.start_day() re-checks this inside its transaction, so
+    #     this early exit is only for a clean message - it is not the enforcement point.
+    holiday = attendance.todays_holiday()
+    if holiday is not None:
+        messages.error(request, attendance.HolidayBlocked(holiday).message)
         return redirect("attendance")
 
     # 2) Cool-down after a burst of rejected attempts (temporary, not a lock-out).
@@ -134,7 +172,7 @@ def attendance_end(request):
     if evidence.failures:
         verify_mod.record_failures(user, evidence, evidence.failures, AttendanceEvent.OUTCOME_FLAGGED, rec)
     verify_mod.touch_device(evidence.device, evidence.ip, request)
-    messages.success(request, f"Day ended. Worked {attendance.fmt_duration(rec.worked_duration)} · {rec.get_attendance_status_display()}.")
+    messages.success(request, f"Day ended. Worked {attendance.fmt_duration(rec.worked_duration)} · {attendance.display_status(rec.work_date, rec, holiday_rules.holiday_for(rec.work_date))}.")
     return redirect("attendance")
 
 
