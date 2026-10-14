@@ -12,9 +12,22 @@ def _dated(qs, params, field="created_at"):
     return qs
 
 
-def staff_performance(params):
+def staff_performance(params, user_ids=None):
+    """
+    Per-telecaller rows. `user_ids` (optional) limits the work to those staff members - the Staff detail
+    page needs one person, and used to compute every telecaller's numbers just to pick one row. The numbers
+    for a given person are identical either way (every figure is grouped per user).
+    """
     today = timezone.localdate()
-    contacts = _dated(Contact.objects.exclude(current_assigned_to=None).filter(is_deleted=False), params)
+    contact_base = Contact.objects.exclude(current_assigned_to=None).filter(is_deleted=False)
+    lead_base = Lead.objects.exclude(assigned_to=None)
+    transfer_base = AssignmentHistory.objects.filter(action=AssignmentHistory.ACTION_TRANSFER)
+    if user_ids is not None:
+        user_ids = list(user_ids)
+        contact_base = contact_base.filter(current_assigned_to_id__in=user_ids)
+        lead_base = lead_base.filter(assigned_to_id__in=user_ids)
+        transfer_base = transfer_base.filter(from_user_id__in=user_ids)
+    contacts = _dated(contact_base, params)
     c_rows = {r["current_assigned_to"]: r for r in contacts.values("current_assigned_to").annotate(
         assigned=Count("id"),
         contacted=Count("id", filter=~Q(status=Contact.STATUS_NEW)),
@@ -23,7 +36,7 @@ def staff_performance(params):
         converted=Count("id", filter=Q(status=Contact.STATUS_CONVERTED)),
         followups=Count("id", filter=Q(followup_status="pending", next_followup_date__lte=today)),
     )}
-    leads = services.annotate_doc_progress(_dated(Lead.objects.exclude(assigned_to=None), params))
+    leads = services.annotate_doc_progress(_dated(lead_base, params))
     l_rows = {r["assigned_to"]: r for r in leads.values("assigned_to").annotate(
         assigned=Count("id"),
         contacted=Count("id", filter=Q(last_contacted__isnull=False)),
@@ -38,11 +51,14 @@ def staff_performance(params):
         rejected=Count("id", filter=Q(status=Lead.STATUS_REJECTED)),
         followups=Count("id", filter=Q(followup_status="pending", next_followup_date__lte=today)),
     )}
-    transfers = _dated(AssignmentHistory.objects.filter(action=AssignmentHistory.ACTION_TRANSFER), params)
+    transfers = _dated(transfer_base, params)
     t_rows = {r["from_user"]: r["n"] for r in transfers.exclude(from_user=None).values("from_user").annotate(n=Count("id"))}
 
     out = []
-    for u in User.objects.select_related("staff_profile").filter(staff_profile__role="staff").order_by("first_name", "username"):
+    users = User.objects.select_related("staff_profile").filter(staff_profile__role="staff").order_by("first_name", "username")
+    if user_ids is not None:
+        users = users.filter(pk__in=user_ids)
+    for u in users:
         c, l = c_rows.get(u.pk, {}), l_rows.get(u.pk, {})
         g = lambda d, k: d.get(k, 0) or 0  # noqa: E731
         row = {
@@ -70,20 +86,27 @@ def document_report(params):
     if staff_id and str(staff_id).isdigit():
         leads = leads.filter(assigned_to_id=int(staff_id))
     status = params.get("doc_status")
-    annotated = services.annotate_doc_progress(leads)
-    total = leads.count()
-    complete = annotated.filter(docs_total__gt=0, docs_received__gte=F("docs_total")).count()
-    partial = annotated.filter(docs_received__gt=0, docs_received__lt=F("docs_total")).count()
-    not_started = annotated.filter(docs_received=0).count()
-    if status in ("not_started", "partial", "complete"):
-        leads = services.filter_doc_status(leads, status)
+    status_applied = status in ("not_started", "partial", "complete")
+    if status_applied:
+        leads = services.filter_doc_status(leads, status)  # already carries docs_received / docs_total
+    # The summary cards describe the SAME filtered lead set as the two tables below (date range + staff + document
+    # status), computed in one aggregate query. (They used to be taken before the status filter, so choosing
+    # "Complete" left "Total leads" showing every lead while the tables listed only the complete ones.)
+    # The "Document" dropdown only narrows the per-document table: it has no meaning at lead level.
+    agg = (leads if status_applied else services.annotate_doc_progress(leads)).order_by().aggregate(
+        total=Count("id"),
+        complete=Count("id", filter=Q(docs_total__gt=0, docs_received__gte=F("docs_total"))),
+        partial=Count("id", filter=Q(docs_received__gt=0, docs_received__lt=F("docs_total"))),
+        not_started=Count("id", filter=Q(docs_received=0)),
+    )
+    total, complete, partial, not_started = agg["total"], agg["complete"], agg["partial"], agg["not_started"]
 
     lead_ids = leads.values("pk")
     doc_rows = []
     types = services.active_doc_types()
     if str(params.get("document") or "").isdigit():
         types = types.filter(pk=int(params["document"]))
-    n_leads = leads.count()
+    n_leads = total  # same set as the cards
     for dt in types:
         received = LeadDocument.objects.filter(document_type=dt, received=True, lead__in=lead_ids).count()
         applicable = n_leads if dt.is_default else LeadDocument.objects.filter(document_type=dt, lead__in=lead_ids).count()

@@ -1,0 +1,4 @@
+{% if rows %}<div class="table-scroll"><table class="data-table"><thead><tr><th>When</th><th>Document</th><th>Change</th><th>By</th></tr></thead><tbody>
+{% for h in rows %}<tr><td class="nowrap">{{ h.created_at|date:"d/m/Y, H:i" }}</td><td>{{ h.document_name }}</td>
+  <td>{% if h.old_received %}Received{% else %}Pending{% endif %} → {% if h.new_received %}Received{% else %}Pending{% endif %}</td><td>{{ h.changed_by_name|default:"—" }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<div class="panel-body muted">No checklist changes yet.</div>{% endif %}

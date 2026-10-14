@@ -8,11 +8,11 @@ from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Q
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from . import access, filters, services
+from . import access, assignee_search, cache_utils, filters, services
 from .datefmt import parse_ddmmyyyy
 from .decorators import active_account_required, admin_required
 from .forms import (
@@ -102,10 +102,14 @@ def staff_list(request):
     staff_members = User.objects.select_related("staff_profile").order_by(
         "-staff_profile__role", "first_name", "username"
     )
+    # Database-level pagination: only one page of accounts is fetched (and rendered). Ordering ends in the
+    # unique username, so pages never repeat or skip an account.
+    page = filters.paginate(request, staff_members, per_page=50)
     return render(
         request,
         "staff/staff_list.html",
-        {"staff_members": staff_members, "active_page": "staff"},
+        {"staff_members": page.object_list, "page": page,
+         "querystring": filters.querystring_without(request, "page"), "active_page": "staff"},
     )
 
 
@@ -314,13 +318,33 @@ def staff_delete(request, user_id):
 
 
 def _followup_counts(model_qs):
+    """
+    Row total + pending follow-up buckets from ONE aggregate query (previously 3 separate COUNTs, plus a
+    4th for the total). `next_followup_date` comparisons already exclude NULL dates, so the buckets match
+    the old `next_followup_date__isnull=False` filter exactly.
+    """
     today = timezone.localdate()
-    base = model_qs.filter(followup_status="pending", next_followup_date__isnull=False)
-    return {
-        "today": base.filter(next_followup_date=today).count(),
-        "overdue": base.filter(next_followup_date__lt=today).count(),
-        "upcoming": base.filter(next_followup_date__gt=today).count(),
-    }
+    pending = Q(followup_status="pending")
+    return model_qs.aggregate(
+        total=Count("id"),
+        today=Count("id", filter=pending & Q(next_followup_date=today)),
+        overdue=Count("id", filter=pending & Q(next_followup_date__lt=today)),
+        upcoming=Count("id", filter=pending & Q(next_followup_date__gt=today)),
+    )
+
+
+def _dashboard_lead_counts(leads, today):
+    """Every lead number the dashboard shows, in ONE aggregate (was ~6 queries)."""
+    pending = Q(followup_status="pending")
+    return leads.aggregate(
+        total=Count("id"),
+        created_today=Count("id", filter=Q(created_at__date=today)),
+        processing=Count("id", filter=Q(status=Lead.STATUS_PROCESSING)),
+        approved=Count("id", filter=Q(status=Lead.STATUS_APPROVED)),
+        rejected=Count("id", filter=Q(status=Lead.STATUS_REJECTED)),
+        fu_today=Count("id", filter=pending & Q(next_followup_date=today)),
+        fu_overdue=Count("id", filter=pending & Q(next_followup_date__lt=today)),
+    )
 
 
 @active_account_required
@@ -332,24 +356,25 @@ def dashboard(request):
     today = timezone.localdate()
 
     complete = services.filter_doc_status(leads, "complete").count()
-    total_leads = leads.count()
-    lead_fu, contact_fu = _followup_counts(leads), _followup_counts(contacts)
+    lc = _dashboard_lead_counts(leads, today)
+    total_leads = lc["total"]
+    contact_fu = _followup_counts(contacts)
+    lead_fu = {"today": lc["fu_today"], "overdue": lc["fu_overdue"]}
     transfers = AssignmentHistory.objects.filter(action=AssignmentHistory.ACTION_TRANSFER, lead__isnull=False)
     if not admin:
         transfers = transfers.filter(from_user=user)
-    counts = dict(leads.values_list("status").annotate(c=Count("id")).values_list("status", "c"))
 
     if admin:
         stats = [
             {"label": "Total Leads", "value": total_leads},
-            {"label": "Total Contacts", "value": contacts.count()},
-            {"label": "Today's Leads", "value": leads.filter(created_at__date=today).count()},
+            {"label": "Total Contacts", "value": contact_fu["total"]},
+            {"label": "Today's Leads", "value": lc["created_today"]},
             {"label": "Pending Follow-ups", "value": lead_fu["today"] + lead_fu["overdue"] + contact_fu["today"] + contact_fu["overdue"]},
             {"label": "Documents Pending", "value": total_leads - complete},
             {"label": "Documents Complete", "value": complete},
-            {"label": "Processing", "value": counts.get(Lead.STATUS_PROCESSING, 0)},
-            {"label": "Approved", "value": counts.get(Lead.STATUS_APPROVED, 0)},
-            {"label": "Rejected", "value": counts.get(Lead.STATUS_REJECTED, 0)},
+            {"label": "Processing", "value": lc["processing"]},
+            {"label": "Approved", "value": lc["approved"]},
+            {"label": "Rejected", "value": lc["rejected"]},
             {"label": "Transferred", "value": transfers.count()},
             {"label": "Total Staff", "value": User.objects.filter(staff_profile__status="active").count()},
             {"label": "Imported Batches", "value": ImportBatch.objects.count()},
@@ -357,14 +382,14 @@ def dashboard(request):
     else:
         stats = [
             {"label": "My Leads", "value": total_leads},
-            {"label": "My Contacts", "value": contacts.count()},
+            {"label": "My Contacts", "value": contact_fu["total"]},
             {"label": "Today's Follow-ups", "value": lead_fu["today"] + contact_fu["today"]},
             {"label": "Overdue Follow-ups", "value": lead_fu["overdue"] + contact_fu["overdue"]},
             {"label": "Documents Pending", "value": total_leads - complete},
             {"label": "Documents Complete", "value": complete},
-            {"label": "Processing", "value": counts.get(Lead.STATUS_PROCESSING, 0)},
-            {"label": "Approved", "value": counts.get(Lead.STATUS_APPROVED, 0)},
-            {"label": "Rejected", "value": counts.get(Lead.STATUS_REJECTED, 0)},
+            {"label": "Processing", "value": lc["processing"]},
+            {"label": "Approved", "value": lc["approved"]},
+            {"label": "Rejected", "value": lc["rejected"]},
             {"label": "Transferred by me", "value": transfers.count()},
         ]
     ctx = {
@@ -384,10 +409,24 @@ def dashboard(request):
 # =========================================================
 
 
+def lead_source_options(user):
+    """
+    Distinct lead sources (max 100) for the "Lead source" filter dropdown, limited to leads this user may see.
+    The explicit order_by("source") matters: Lead's default ordering (-created_at) is otherwise added to the
+    SELECT DISTINCT, which makes every row "distinct" (the dropdown showed repeated sources taken from the 100
+    newest leads). Cached for 5 minutes per user; it is only a list of option labels - never lead data.
+    """
+    def produce():
+        return list(access.visible_leads(user).exclude(source="").order_by("source")
+                    .values_list("source", flat=True).distinct()[:100])
+
+    return cache_utils.cached("lead_sources", (user.pk, get_bool("referrer_keeps_access")), 300, produce)
+
+
 def _lead_list_context(request, base_qs, active_page, title, subtitle, list_url_name, per_page=50):
     params = request.GET
     admin = access.is_admin(request.user)
-    qs = filters.filter_leads(base_qs.select_related("reference_by", "assigned_to"), params)
+    qs = filters.filter_leads(base_qs.select_related("reference_by", "assigned_to"), params, user=request.user)
     page = filters.paginate(request, qs, per_page=per_page)
     progress = services.doc_progress_map([l.pk for l in page.object_list])
     for lead in page.object_list:
@@ -397,11 +436,13 @@ def _lead_list_context(request, base_qs, active_page, title, subtitle, list_url_
         lead.doc_status_key = status
         lead.can_edit = access.can_edit_lead(request.user, lead)
         lead.can_delete = access.can_delete_lead(request.user, lead)
-    sources = list(access.visible_leads(request.user).exclude(source="").values_list("source", flat=True).distinct()[:100])
+    sources = lead_source_options(request.user)
+    staff = list(services.active_staff())  # one query, shared by the filter dropdowns and the bulk bar
     return {
+        "filtered_qs": qs,  # the authoritative filtered (un-paginated) queryset - KPI cards aggregate over THIS
         "page": page, "leads": page.object_list, "total_count": page.paginator.count,
-        "staff_members": services.active_staff() if admin else [],
-        "bulk_staff": services.active_staff(),
+        "staff_members": staff if admin else [],
+        "bulk_staff": staff,
         "status_choices": Lead.STATUS_CHOICES, "sources": sources,
         "doc_types": services.active_doc_types(),
         "querystring": filters.querystring_without(request, "page"),
@@ -411,6 +452,20 @@ def _lead_list_context(request, base_qs, active_page, title, subtitle, list_url_
         "has_filters": any(k for k in request.GET if k not in ("page", "per_page", "sort")),
         "GET": params,
     }
+
+
+@active_account_required
+def assignee_suggest(request):
+    """
+    JSON autocomplete for the lead "Assigned To" filter (All Leads / My Leads).
+    Suggestions come ONLY from leads the caller is authorised to see (access.visible_leads), so a staff user can never
+    learn an assignee name from a lead they cannot open. Bounded: <= 8 results, one grouped query, no per-row work.
+    """
+    qs = access.visible_leads(request.user)
+    query = (request.GET.get("q") or "")[:100]
+    resp = JsonResponse({"query": assignee_search.tidy(query), "results": assignee_search.suggest(qs, query)})
+    resp["Cache-Control"] = "private, no-store"
+    return resp
 
 
 @active_account_required
@@ -435,23 +490,30 @@ def my_leads(request):
     """
     user = request.user
     scope = request.GET.get("scope", "")
-    base = access.visible_leads(user)
-    if scope == "assigned":
-        base = base.filter(assigned_to=user)
-    elif scope == "referred":
-        base = base.filter(reference_by=user)
-    stats_qs = access.visible_leads(user)
-    stats = [
-        {"label": "Assigned to me", "value": stats_qs.filter(assigned_to=user).count()},
-        {"label": "Referred by me", "value": stats_qs.filter(reference_by=user).count()},
-        {"label": "Documents Pending", "value": stats_qs.filter(status=Lead.STATUS_DOCS_PENDING).count()},
-        {"label": "Documents Complete", "value": stats_qs.filter(status=Lead.STATUS_DOCS_COMPLETE).count()},
-        {"label": "Meeting Requested", "value": stats_qs.filter(status=Lead.STATUS_MEETING_REQUESTED).count()},
-        {"label": "Approved", "value": stats_qs.filter(status=Lead.STATUS_APPROVED).count()},
-    ]
+    scope = scope if scope in ("assigned", "referred") else ""
+    base = access.visible_leads(user)  # the scope tab itself is applied inside filters.filter_leads(user=...)
     ctx = _lead_list_context(request, base, "my_leads", "My Leads",
                              "Leads assigned to you and leads you referred.", "my_leads", per_page=25)
-    ctx.update({"stats": stats, "scope": scope})
+    # The cards describe EXACTLY the dataset the table below lists: the same authorised base queryset, the same
+    # scope tab and the same filters/search (filters.filter_leads), aggregated in ONE query over the whole
+    # filtered set - never just the current page. Clearing the filters restores the all-mine totals.
+    n = ctx["filtered_qs"].order_by().aggregate(
+        assigned=Count("id", filter=Q(assigned_to=user)),
+        referred=Count("id", filter=Q(reference_by=user)),
+        docs_pending=Count("id", filter=Q(status=Lead.STATUS_DOCS_PENDING)),
+        docs_complete=Count("id", filter=Q(status=Lead.STATUS_DOCS_COMPLETE)),
+        meeting=Count("id", filter=Q(status=Lead.STATUS_MEETING_REQUESTED)),
+        approved=Count("id", filter=Q(status=Lead.STATUS_APPROVED)),
+    )
+    stats = [
+        {"label": "Assigned to me", "value": n["assigned"]},
+        {"label": "Referred by me", "value": n["referred"]},
+        {"label": "Documents Pending", "value": n["docs_pending"]},
+        {"label": "Documents Complete", "value": n["docs_complete"]},
+        {"label": "Meeting Requested", "value": n["meeting"]},
+        {"label": "Approved", "value": n["approved"]},
+    ]
+    ctx.update({"stats": stats, "scope": scope, "stats_filtered": bool(scope) or ctx["has_filters"]})
     return render(request, "leads/my_leads.html", ctx)
 
 
@@ -464,6 +526,7 @@ def followups(request):
     def pending(qs):
         return qs.filter(followup_status="pending", next_followup_date__isnull=False)
 
+    lead_counts, contact_counts = _followup_counts(leads), _followup_counts(contacts)
     sections = []
     for key, label, cond in (
         ("overdue", "Overdue", {"next_followup_date__lt": today}),
@@ -473,7 +536,7 @@ def followups(request):
         order = "-next_followup_date" if key == "overdue" else "next_followup_date"
         l = pending(leads).filter(**cond).select_related("assigned_to").order_by(order, "next_followup_time")
         c = pending(contacts).filter(**cond).select_related("current_assigned_to").order_by(order, "next_followup_time")
-        sections.append({"key": key, "label": label, "lead_count": l.count(), "contact_count": c.count(),
+        sections.append({"key": key, "label": label, "lead_count": lead_counts[key], "contact_count": contact_counts[key],
                          "leads": l[:50], "contacts": c[:50]})
 
     # Preserved from the original page: leads waiting on documents / a meeting.
@@ -708,9 +771,8 @@ def lead_detail(request, lead_id):
     can_transfer = access.can_transfer_lead(request.user, lead)
     ctx = {
         "lead": lead, "items": items, "summary": summary, "extra_types": extra_types,
-        "timeline": lead.activities.all()[:200],
-        "assignments": lead.assignment_history.all(),
-        "doc_history": lead.document_history.all()[:100],
+        # timeline / assignment history / checklist history are NOT loaded here: they are fetched on demand when the
+        # person opens the panel (lead_lazy_panel below), which saves three queries + their rendering per page view.
         "can_edit": access.can_edit_lead(request.user, lead),
         "can_delete": access.can_delete_lead(request.user, lead),
         "can_transfer": can_transfer,
@@ -722,6 +784,25 @@ def lead_detail(request, lead_id):
         "status_choices": Lead.STATUS_CHOICES,
     }
     return render(request, "leads/lead_detail.html", ctx)
+
+
+_LEAD_PANELS = {
+    "timeline": ("partials/lazy/lead_timeline.html", lambda lead: lead.activities.all()[:200]),
+    "assignments": ("partials/lazy/lead_assignments.html", lambda lead: lead.assignment_history.all()[:200]),
+    "doc_history": ("partials/lazy/lead_doc_history.html", lambda lead: lead.document_history.all()[:100]),
+}
+
+
+@active_account_required
+def lead_lazy_panel(request, lead_id, panel):
+    """HTML fragment for one secondary panel of the lead page. Same authorisation as lead_detail (404 if not visible)."""
+    if panel not in _LEAD_PANELS:
+        raise Http404("Unknown panel")
+    lead = access.get_visible_lead_or_404(request.user, lead_id)
+    template, rows = _LEAD_PANELS[panel]
+    resp = render(request, template, {"rows": list(rows(lead)), "lead": lead})
+    resp["Cache-Control"] = "private, no-store"
+    return resp
 
 
 @active_account_required

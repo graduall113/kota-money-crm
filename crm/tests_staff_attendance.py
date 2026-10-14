@@ -200,9 +200,18 @@ class DashboardCountTests(Base):
         self.assertContains(resp, "status=working")
         self.assertContains(resp, "anomaly=yes")
 
-    def test_cards_ignore_table_filters(self):
-        s = self.get(status="half_day", q="neha").context["summary"]
+    def test_cards_ignore_the_status_breakdown_filter(self):
+        # status is the cards' own breakdown dimension (each card links to it), so it only refines the table
+        s = self.get(status="half_day").context["summary"]
         self.assertEqual(s["total"], 6)
+
+    def test_cards_follow_the_staff_and_search_filters(self):
+        # Requirement change: summaries respect the staff / date / search population filters (they used to be
+        # "always every staff member, today"). Neha is the one half-day record.
+        s = self.get(status="half_day", q="neha").context["summary"]
+        self.assertEqual((s["total"], s["started"], s["half_day"], s["present"]), (1, 1, 1, 0))
+        s = self.get(staff=self.neha.pk).context["summary"]
+        self.assertEqual((s["total"], s["started"], s["half_day"]), (1, 1, 1))
 
 
 # ==================================================================== table + statuses
@@ -740,7 +749,7 @@ class ExportTests(Base):
 
     def test_export_respects_filters(self):
         self.assertEqual({r[0] for r in self.csv_rows(status="present")[1:]}, {"Amit", "Kiran", "Rahul", "Vikram"})
-        self.assertEqual({r[0] for r in self.csv_rows(q="neha")[1:]}, {"Neha"})
+        self.assertEqual({r[0] for r in self.csv_rows(q="neha")[1:]}, {"Neha Sharma"})
         self.assertEqual({r[0] for r in self.csv_rows(anomaly="yes")[1:]}, set())
 
     def test_export_range_mode(self):

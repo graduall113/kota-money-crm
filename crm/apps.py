@@ -6,4 +6,4 @@ class CrmConfig(AppConfig):
     name = "crm"
 
     def ready(self):
-        from . import signals  # noqa: F401  (registers the post_save signal)
+        from . import settings_store, signals  # noqa: F401  (registers the post_save signals + per-request settings snapshot)

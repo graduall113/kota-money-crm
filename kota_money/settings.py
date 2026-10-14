@@ -101,6 +101,24 @@ DATABASES = {
 }
 
 # -----------------------------------------------------------------
+# CACHE
+# -----------------------------------------------------------------
+# Per-process in-memory cache (no Redis / paid service needed). Used ONLY for short-lived, non-sensitive
+# data - filter dropdown lists and two admin analytics aggregates (see crm/cache_utils.py). Each gunicorn
+# worker keeps its own copy, so every entry has a short TTL. Switched to a no-op cache while the test suite
+# runs so cached values can never leak between tests.
+if "test" in sys.argv:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "kota-crm-default",
+            "OPTIONS": {"MAX_ENTRIES": 500},
+        }
+    }
+
+# -----------------------------------------------------------------
 # PASSWORD VALIDATION
 # -----------------------------------------------------------------
 AUTH_PASSWORD_VALIDATORS = [

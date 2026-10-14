@@ -570,4 +570,6 @@ class MigrationTests(TestCase):
         loader = MigrationLoader(None, ignore_no_migrations=True)
         self.assertIn(("crm", "0013_staff_attendance_admin"), loader.graph.forwards_plan(("crm", "0014_holiday")))
         self.assertIn(("crm", "0014_holiday"), loader.graph.forwards_plan(("crm", "0015_lead_sync_queue")))
-        self.assertEqual(loader.graph.leaf_nodes("crm"), [("crm", "0015_lead_sync_queue")])
+        # The chain must stay linear and 0015 must still be part of it (later migrations may be added on top).
+        self.assertEqual(len(loader.graph.leaf_nodes("crm")), 1)
+        self.assertIn(("crm", "0015_lead_sync_queue"), loader.graph.forwards_plan(loader.graph.leaf_nodes("crm")[0]))

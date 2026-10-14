@@ -1,0 +1,7 @@
+{# Collapsed-by-default secondary panel; its rows are fetched from `url` the first time it is opened. #}
+<div class="panel lazy-panel" data-lazy-url="{{ url }}">
+  <div class="panel-header"><h2>{{ title }}</h2>
+    <button type="button" class="btn-secondary btn-sm lazy-toggle" aria-expanded="false">Show</button></div>
+  <div class="lazy-body" hidden aria-live="polite"></div>
+  <noscript><div class="panel-body"><a class="link" href="{{ url }}">Open {{ title|lower }}</a></div></noscript>
+</div>

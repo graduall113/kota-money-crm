@@ -1,0 +1,1 @@
+<div class="panel-body">{% if rows %}<ul class="timeline">{% for a in rows %}<li><div class="t-date">{{ a.created_at|date:"d/m/Y, H:i" }} · {{ a.actor_name }}</div><div class="t-msg">{{ a.message }}</div></li>{% endfor %}</ul>{% else %}<span class="muted">No activity yet.</span>{% endif %}</div>

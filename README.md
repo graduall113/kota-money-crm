@@ -47,6 +47,9 @@ the exact Rahul/Mohit/Suresh scenario from the spec before shipping.
 - `crm/api.py` — **inbound** n8n → Django endpoint (`/api/leads/create/`,
   authenticated via `X-N8N-API-KEY`). Kept as-is; not used by the native
   form, but left intact in case anything else still posts to it.
+  Free-text `assigned_to` / `reference_by` are stored as typed and never decide CRM ownership; inbound leads are
+  created unowned (admin assigns) unless the explicit `crm_owner` key names one active staff member — see
+  `docs/n8n_ownership_policy.md`.
 - `templates/auth/` — login, register, profile, password reset flow.
 - `templates/staff/` — admin Staff Management (list, add, edit, toggle status).
 - `templates/leads/lead_form.html` — the native "Add New Lead" page.
@@ -132,3 +135,30 @@ See [docs/staff_attendance.md](docs/staff_attendance.md). Apply the new migratio
 
 Row colouring by Status is done by an Apps Script in `google_sheets_row_colour/` that n8n calls after
 the Sheets upsert; the row is found by Lead ID. No Django changes. Setup: `docs/n8n_sheet_row_colour_setup.md`.
+
+
+## Summary cards and filters
+
+Cards must always describe the same records the table lists. See `SUMMARY_SYNC_CHECKLIST.md` for the
+page-by-page inventory (what follows filters, what is intentionally global) and `crm/tests_summary_sync.py`.
+
+## Running the tests
+
+    python manage.py test --settings=kota_money.settings_test
+
+`kota_money/settings_test.py` uses a throw-away SQLite file and ignores `DATABASE_URL`, so tests never touch the real database.
+
+## UI/UX polish pass (typography, pills, cards, panel headers)
+
+Shared-CSS-only change; no models, migrations, views, URLs or business logic were touched.
+
+**Shared CSS changed**
+- `static/css/style.css` — new "UI POLISH LAYER" block at the end: typography tokens (`--font-sans/-display/-mono`, `--fs-*`, `--lh-*`), one unified pill component for `.status-pill`, `.badge` and `.act-state` (content-sized, `inline-flex`, vertically centred, soft radius that stays round on one line and degrades to a rounded rectangle if it must wrap), panel-header rule that keeps a lone "View all →" link on the title row (right-aligned), and a visible `:focus-visible` ring for links/buttons/summaries.
+- `static/css/mobile.css` — table→card labels now use the body font in sentence case at 12px (previously they inherited the monospace font of cells such as Lead ID and were forced uppercase, which made labels wrap and misalign); new `rt-span` utility for card cells that need a full row; cells holding a status pill take a full row at ≤480px so pills stay on one line; the "View all →" link is no longer stretched/centred on phones.
+- `templates/attendance/activity_board.html` — Staff and CRM state cells carry `class="rt-span"` (markup/text otherwise unchanged; monitoring wording and logic untouched).
+- `staticfiles/css/` — kept in sync with `static/css/` (run `collectstatic` in production as usual).
+
+**Verification actually performed** (Chromium via Playwright against a throw-away SQLite database seeded with long names, long emails and every lead status; dev server, `settings_test`):
+- Measured page-level horizontal overflow and pill height on 31 pages × 11 widths (320, 360, 375, 390, 430, 768, 820, 1024, 1280, 1366, 1440), logged in as admin. Baseline: tall/wrapped pills on dashboard, follow-ups, attendance and staff-activity pages. After: no page-level overflow and no oversized pills on any audited page.
+- Screenshots reviewed at 390px: dashboard "Recent leads" and "Staff CRM Activity" cards.
+- Not verified visually: staff-role views, pages needing data that was not seeded (reports/analytics with real call data, import review screens, modals opened by interaction), real devices/Safari. Those were reviewed only through the shared CSS they use.

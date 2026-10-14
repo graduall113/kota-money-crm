@@ -23,7 +23,7 @@ from django.contrib.auth.models import User
 from django.db import connection, transaction
 from django.utils import timezone
 
-from . import services
+from . import cache_utils, services
 from .models import (
     AssignmentHistory, Contact, ContactSegment, ImportBatch, ImportReviewRow, ImportRowError, normalize_phone,
     user_label,
@@ -627,6 +627,8 @@ def _run(batch_id, phase, close=True, **kw):
             services.log_audit(batch.uploaded_by, "import_failed", f"Import {batch.code} failed: {str(exc)[:200]}",
                                {"batch": batch.code, "phase": phase}, "import", batch.pk)
     finally:
+        cache_utils.invalidate_reports()  # bulk_create() paths emit no model signals
+        cache_utils.bump("contact_batches")
         if close:
             connection.close()
 

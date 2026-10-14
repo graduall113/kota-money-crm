@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}{{ contact.name }} · Kota Money CRM{% endblock %}
 {% block content %}
 <div class="page-header with-actions">
   <div>
     <h1>{{ contact.name }}</h1>
-    <p><a class="link" href="tel:{{ contact.phone }}">{{ contact.phone }}</a> · <span class="badge">{{ contact.get_status_display }}</span></p>
+    <p><a class="link" href="tel:{{ contact.phone }}">{{ contact.phone }}</a> · <span class="badge {% if contact.status == 'interested' or contact.status == 'converted' %}ok{% elif contact.status == 'not_interested' %}bad{% elif contact.status == 'callback' or contact.status == 'switched_off' or contact.status == 'not_received' %}warn{% endif %}">{{ contact.get_status_display }}</span></p>
   </div>
   <div class="page-actions">
     {% if can_edit %}<a class="btn-secondary" href="{% url 'contact_edit' contact.pk %}">Edit</a>{% endif %}
@@ -66,17 +67,14 @@
   </div></div>
   {% endif %}
 
-  <div class="panel"><div class="panel-header"><h2>Assignment history</h2></div>
-    {% if history %}<div class="table-scroll"><table class="data-table"><thead><tr><th>When</th><th>Change</th><th>By</th><th>Reason</th></tr></thead><tbody>
-    {% for a in history %}<tr><td class="nowrap">{{ a.created_at|date:"d/m/Y, H:i" }}</td><td>{{ a.from_name|default:"Unassigned" }} → {{ a.to_name|default:"Unassigned" }}</td><td>{{ a.changed_by_name|default:"—" }}</td><td>{{ a.reason|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
-    {% else %}<div class="panel-body muted">Never assigned.</div>{% endif %}</div>
+  {% url 'contact_lazy_panel' contact.pk 'history' as u_hist %}{% include "partials/lazy_panel.html" with url=u_hist title="Assignment history" %}
 
 </div><div class="stack">
 
   <div class="panel"><div class="panel-header"><h2>Assignment</h2></div><div class="panel-body">
     <dl class="kv-grid" style="grid-template-columns: 1fr;">
       <div><dt>Reference By</dt><dd>{% if contact.reference_by %}{{ contact.reference_by.get_full_name|default:contact.reference_by.username }}{% else %}—{% endif %}</dd></div>
-      <div><dt>Current Assigned To</dt><dd>{% if contact.current_assigned_to %}{{ contact.current_assigned_to.get_full_name|default:contact.current_assigned_to.username }}{% else %}Unassigned{% endif %}</dd></div>
+      <div><dt>Current Assigned To Staff</dt><dd>{% if contact.current_assigned_to %}{{ contact.current_assigned_to.get_full_name|default:contact.current_assigned_to.username }}{% else %}Unassigned{% endif %}</dd></div>
     </dl>
     {% if is_admin_view %}
     <form method="post" action="{% url 'contact_action' contact.pk %}" style="margin-top:14px;">{% csrf_token %}<input type="hidden" name="action" value="assign">
@@ -116,7 +114,8 @@
   </div></div>
   {% endif %}
 
-  <div class="panel"><div class="panel-header"><h2>Activity</h2></div><div class="panel-body">{% if timeline %}<ul class="timeline">{% for a in timeline %}<li><div class="t-date">{{ a.created_at|date:"d/m/Y, H:i" }} · {{ a.actor_name }}</div><div class="t-msg">{{ a.message }}</div></li>{% endfor %}</ul>{% else %}<span class="muted">No activity yet.</span>{% endif %}</div></div>
+  {% url 'contact_lazy_panel' contact.pk 'timeline' as u_tl %}{% include "partials/lazy_panel.html" with url=u_tl title="Activity" %}
 
 </div></div>
 {% endblock %}
+{% block extra_scripts %}<script src="{% static 'js/lazy_panels.js' %}" defer></script>{% endblock %}

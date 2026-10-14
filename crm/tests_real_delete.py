@@ -46,7 +46,8 @@ class RealDeleteBase(TestCase):
         self.sc.force_login(self.staff)
 
     def mk_lead(self, contact=None, **kw):
-        return Lead.objects.create(customer_name="Priya", contact_number="9876543210", contact=contact, **kw)
+        kw.setdefault("customer_name", "Priya")
+        return Lead.objects.create(contact_number="9876543210", contact=contact, **kw)
 
     def audit(self, action):
         return AuditLog.objects.filter(action=action)

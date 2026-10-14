@@ -136,6 +136,7 @@ class WarningTests(LiveBase):
         self.ev(at(10, 5), "CALL_ACTIVE", MINE)  # then the phone dies: no more refreshes
         ttl = settings.ACTIVITY_LIVE_CALL_TTL_SECONDS
         self.assertTrue(self.state(at(10, 5) + datetime.timedelta(seconds=ttl))["on_assigned_call"])
+        self.sig(at(10, 7), "visibility", vis="hidden")  # the page keeps heart-beating; only the PHONE went silent
         late = at(10, 5) + datetime.timedelta(seconds=ttl + 1)
         self.assertFalse(self.state(late)["on_assigned_call"])
         self.assertEqual(self.state(late)["state"], sa.BACKGROUND)

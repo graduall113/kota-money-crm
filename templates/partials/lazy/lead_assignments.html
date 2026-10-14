@@ -1,0 +1,5 @@
+{% if rows %}<div class="table-scroll"><table class="data-table"><thead><tr><th>When</th><th>Change</th><th>By</th></tr></thead><tbody>
+{% for a in rows %}<tr><td class="nowrap">{{ a.created_at|date:"d/m/Y, H:i" }}</td>
+  <td><span class="badge {% if a.action == 'transfer' %}info{% endif %}">{{ a.get_action_display }}</span><br>{{ a.from_name|default:"Unassigned" }} → {{ a.to_name|default:"Unassigned" }}{% if a.reason %}<br><span class="muted">{{ a.reason }}</span>{% endif %}</td>
+  <td>{{ a.changed_by_name|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="panel-body muted">No assignments recorded yet.</div>{% endif %}

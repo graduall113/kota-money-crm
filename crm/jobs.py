@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.http import QueryDict
 from django.utils import timezone
 
-from . import filters, lead_sync, services
+from . import cache_utils, filters, lead_sync, services
 from .access import is_admin, visible_contacts, visible_leads
 from .models import AssignmentHistory, Contact, Lead, Segment, user_label
 
@@ -26,7 +26,8 @@ def resolve_queryset(model_name, user, scope):
         return base.filter(pk__in=ids)
     if scope.get("type") == "batch":
         return base.filter(import_batch_id=int(scope["batch_id"]), **({"current_assigned_to__isnull": True} if scope.get("only_unassigned") else {}))
-    return flt(base, QueryDict(scope.get("query", "")))
+    params = QueryDict(scope.get("query", ""))
+    return flt(base, params, user=user) if model_name == "lead" else flt(base, params)
 
 
 def owned_only(model, qs, user):
@@ -114,3 +115,4 @@ def execute_job(job_id):
         job.status, job.error = BackgroundJob.STATUS_FAILED, str(exc)[:1000]
     job.finished_at = timezone.now()
     job.save()
+    cache_utils.invalidate_reports()  # bulk paths use queryset.update(): no model signals fired

@@ -99,6 +99,7 @@ def staff_activity_board(request):
             staff__in=staff, is_qualifying=True, connected_at__isnull=False,
             last_seen_at__gte=now - datetime.timedelta(days=1)).order_by("-last_seen_at"):
         live_by_user.setdefault(x.staff_id, []).append(x)
+    presence_by_user = {p.user_id: p for p in StaffPresence.objects.filter(user__in=staff)}  # one query, not one per person
     rows = []
     for u in staff:
         state, rec = attendance.get_state(u)
@@ -106,7 +107,7 @@ def staff_activity_board(request):
             d = sa.compute_state(u, now, record=rec, live=live_by_user.get(u.pk, []))
         else:
             d = {"state": sa.NOT_WORKING, "label": sa.LABELS[sa.NOT_WORKING], "staff_status": "not_working"}
-        presence = StaffPresence.objects.filter(user=u).first()
+        presence = presence_by_user.get(u.pk)
         mine = periods_today.get(u.pk, [])
         rows.append({
             "user": u, "name": user_label(u), "d": d, "presence": presence,

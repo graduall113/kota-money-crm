@@ -258,7 +258,7 @@ class LeadForm(forms.ModelForm):
             "bank_calling": forms.TextInput(attrs=TEXT_WIDGET),
             "status": forms.Select(attrs=TEXT_WIDGET),
             "reference_by_name": forms.TextInput(attrs=TEXT_WIDGET),
-            "assigned_to_name": forms.TextInput(attrs=TEXT_WIDGET),
+            "assigned_to_name": forms.TextInput(attrs={**TEXT_WIDGET, "autocomplete": "off", "spellcheck": "false"}),
             "email": forms.EmailInput(attrs=TEXT_WIDGET),
             "city": forms.TextInput(attrs=TEXT_WIDGET),
             "source": forms.TextInput(attrs=TEXT_WIDGET),

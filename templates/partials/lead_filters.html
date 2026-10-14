@@ -1,4 +1,6 @@
+{% load static %}
 <form method="get" class="lead-filter-form">
+  {% if scope %}<input type="hidden" name="scope" value="{{ scope }}">{% endif %}
   <div class="filter-grid">
     <div class="filter-search"><label>Search (name, phone, Lead ID, email)</label><input type="text" name="q" value="{{ GET.q }}" placeholder="e.g. Rahul · 98290 · KM-1058 · name@mail.com"></div>
     <div><label>Status</label>
@@ -11,8 +13,18 @@
         <option value="complete" {% if GET.doc_status == 'complete' %}selected{% endif %}>Complete</option>
         <option value="pending" {% if GET.doc_status == 'pending' %}selected{% endif %}>Any pending</option>
       </select></div>
+    <div class="assignee-filter" data-autosubmit data-suggest-url="{% url 'assignee_suggest' %}">
+      <label for="assigneeInput">Assigned To</label>
+      <div class="assignee-box">
+        <input type="text" id="assigneeInput" name="assignee" value="{{ GET.assignee }}" placeholder="Type a name, e.g. Anchal Jain"
+               autocomplete="off" autocapitalize="off" spellcheck="false" role="combobox" aria-autocomplete="list"
+               aria-expanded="false" aria-controls="assigneeList" aria-haspopup="listbox">
+        <button type="button" class="assignee-clear" aria-label="Clear Assigned To filter" {% if not GET.assignee %}hidden{% endif %}>&times;</button>
+        <ul id="assigneeList" class="assignee-list" role="listbox" hidden></ul>
+      </div>
+    </div>
     {% if is_admin_view %}
-    <div><label>Assigned To</label>
+    <div><label>CRM Owner (staff)</label>
       <select name="assigned_to"><option value="">All</option><option value="none" {% if GET.assigned_to == 'none' %}selected{% endif %}>Unassigned</option>
         {% for s in staff_members %}<option value="{{ s.id }}" {% if GET.assigned_to == s.id|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
     <div><label>Reference By</label>
@@ -52,7 +64,7 @@
   <div class="filter-grid" style="border-top:none; padding-top:0;">
     <div class="filter-actions">
       <button type="submit" class="btn-primary btn-sm">Apply Filters</button>
-      <a href="{{ request.path }}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a>
+      <a href="{{ request.path }}{% if scope %}?scope={{ scope }}{% endif %}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a>
       {% if can_export %}
       <a href="{% url 'leads_export' %}?{{ querystring }}" class="btn-secondary btn-sm" style="text-decoration:none;">Export CSV</a>
       <a href="{% url 'leads_export' %}?{{ querystring }}{% if querystring %}&{% endif %}format=xlsx" class="btn-secondary btn-sm" style="text-decoration:none;">Export Excel</a>
@@ -63,3 +75,4 @@
     </div>
   </div>
 </form>
+<script src="{% static 'js/assignee_filter.js' %}" defer></script>

@@ -217,6 +217,7 @@ class ConvertContactLeadIdTests(TestCase):
 
     @mock.patch("crm.views.send_lead_to_n8n", return_value=(True, ""))
     def test_conversion_generates_id_and_shows_it(self, n8n):
+        Lead.objects.create(customer_name="Filler", contact_number="9000000000")  # so the new pk is not coincidentally 1
         r = self.c.post(reverse("lead_create"), dict(VALID, from_contact=self.contact.pk, display_id="KM-1"),
                         follow=True)
         lead = Lead.objects.get(contact=self.contact)

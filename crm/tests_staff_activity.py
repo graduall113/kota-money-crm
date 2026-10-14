@@ -349,7 +349,8 @@ class EndpointTests(Base):
         with Clock(at(10, 40)):
             self.assertEqual(self.c.post(reverse("lunch_end")).status_code, 302)
         self.assertFalse(LunchBreak.objects.filter(user=self.staff, ended_at__isnull=True).exists())
-        self.assertEqual(self.c.get(reverse("lunch_start")).status_code, 405)
+        with Clock(at(10, 41)):   # inside working hours, otherwise the attendance gate redirects before the 405
+            self.assertEqual(self.c.get(reverse("lunch_start")).status_code, 405)
 
     def test_widget_renders_activity_script_for_working_staff(self):
         with Clock(at(10, 5)):

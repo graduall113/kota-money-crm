@@ -2,9 +2,12 @@
 Admin-editable settings (stored in the DB so nothing needs a code change).
 `get_setting()` always returns a value: stored value -> DEFAULTS -> given default.
 """
+import threading
 from urllib.parse import urlparse
 
 from django.conf import settings as django_settings
+from django.core.signals import request_finished, request_started
+from django.db.models.signals import post_delete, post_save
 
 from .models import Setting
 
@@ -37,7 +40,48 @@ BOOL_KEYS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Request-scoped snapshot of the Setting table.
+#
+# One page view reads many settings (access.visible_leads(), the n8n context processor,
+# can_export(), ...): that used to be one SELECT per read. While an HTTP request is being handled
+# the whole (tiny) table is now loaded ONCE and reused for the rest of that request, then thrown
+# away when the request finishes. Nothing survives into the next request, so a setting changed by
+# an admin (in this or any other worker process, or in the Django admin) is seen by the very next
+# request - there is no stale-permission window. Outside a request (management commands, worker
+# threads, tests that call helpers directly) nothing is cached and every read hits the DB as before.
+# Any write through the ORM (set_setting, admin, Setting.save/delete) drops the snapshot at once.
+# ---------------------------------------------------------------------------
+_local = threading.local()
+
+
+def _begin_request(**_kwargs):
+    _local.snapshot = {}
+
+
+def _end_request(**_kwargs):
+    _local.snapshot = None
+
+
+def _drop_snapshot(**_kwargs):
+    if getattr(_local, "snapshot", None) is not None:
+        _local.snapshot = {}
+
+
+request_started.connect(_begin_request, dispatch_uid="crm_settings_snapshot_begin")
+request_finished.connect(_end_request, dispatch_uid="crm_settings_snapshot_end")
+post_save.connect(_drop_snapshot, sender=Setting, dispatch_uid="crm_settings_snapshot_save")
+post_delete.connect(_drop_snapshot, sender=Setting, dispatch_uid="crm_settings_snapshot_delete")
+
+
 def get_setting(key, default=""):
+    snapshot = getattr(_local, "snapshot", None)
+    if snapshot is not None:  # inside an HTTP request
+        if "__all__" not in snapshot:
+            snapshot["__all__"] = dict(Setting.objects.values_list("key", "value"))
+        if key in snapshot["__all__"]:
+            return snapshot["__all__"][key]
+        return DEFAULTS.get(key, default)
     row = Setting.objects.filter(key=key).only("value").first()
     if row is not None:
         return row.value

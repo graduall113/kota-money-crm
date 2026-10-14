@@ -97,7 +97,7 @@
     const $ = id => document.getElementById(id);
     $('bar').style.width = d.percent + '%'; $('pct').textContent = d.percent; $('nums').textContent = d.processed + ' / ' + d.total;
     $('imp').textContent = d.imported; $('dup').textContent = d.duplicates; $('err').textContent = d.errors; $('phase').textContent = d.status_label + '…';
-    if (!d.busy) { location.reload(); } else { setTimeout(poll, 1500); }
+    if (!d.busy) { location.reload(); } else { setTimeout(poll, document.hidden ? 8000 : 1500); }
   }).catch(() => setTimeout(poll, 3000));
 })();
 </script>

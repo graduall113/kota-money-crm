@@ -21,16 +21,24 @@ from .models import Attendance, user_label
 @admin_required
 @require_GET
 def staff_attendance(request):
-    """Today cards + filterable, paginated attendance table."""
+    """Summary cards (follow the date / staff / search filters) + filterable, paginated attendance table."""
     today = attendance.business_date()
     f = aa.parse_filters(request.GET, today)
-    source = aa.range_rows(f, today) if f.is_range else aa.build_queryset(f, today)
+    if f.is_range:
+        # ONE population (date range + staff + search) feeds both the table and the cards; the table then applies
+        # the status/verification/anomaly refinements on top of it.
+        population = aa.range_population(f, today)
+        summary = aa.range_summary(population, f)
+        source = aa.refine_range_rows(population, f)
+    else:
+        summary = aa.day_summary(f, today)
+        source = aa.build_queryset(f, today)
     page = filters.paginate(request, source, per_page=25)  # only one page is ever loaded
     rows = aa.rows_for_page(page.object_list, f, today)
     return render(request, "attendance/admin_dashboard.html", {
         "active_page": "staff_attendance",
         "holiday": holiday_rules.holiday_for(f.date),
-        "summary": aa.today_summary(today),
+        "summary": summary, "summary_qs": aa.summary_link_params(f), "today_date": today,
         "f": f, "rows": rows, "page": page,
         "querystring": filters.querystring_without(request, "page"),
         "staff_options": aa.eligible_staff().select_related(None).only("id", "first_name", "last_name", "username"),

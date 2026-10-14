@@ -635,7 +635,7 @@ class SettingsTests(Base):
 
     def test_settings_page_renders_and_shows_detected_ip(self):
         r = self.ac.get(reverse("settings_page") + "?section=attendance")
-        self.assertContains(r, "Attendance Verification")
+        self.assertContains(r, "Layered checks on <strong>Start Day</strong>")   # section heading is now just "Attendance"
         self.assertContains(r, "127.0.0.1")
 
     def test_defaults_are_off_so_deploying_locks_nobody_out(self):

@@ -14,8 +14,10 @@ Two query shapes, because "Not Started" / "Absent" are staff with NO row:
 """
 import datetime
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -241,11 +243,11 @@ def _status_day_filter(qs, f, d, today, has_rec, day_recs, show_virtual):
     return qs
 
 
-def range_rows(f, today=None):
+def range_population(f, today=None):
     """
-    Range view: one Row per (staff, calendar day) for every day up to today - so working days with no
-    Start Day show ABSENT, Sundays SUNDAY and holidays HOLIDAY even though no Attendance row exists.
-    Derived on the fly (nothing is stored); capped at MAX_RANGE_DAYS days.
+    Range view, step 1: one Row per (staff, calendar day) for every day up to today, narrowed ONLY by the
+    population filters (date range, staff, search) - with anomalies attached. This is the dataset the summary
+    cards describe; range_rows() refines it further for the table.
     """
     today = today or attendance.business_date()
     lo, hi = f.date, min(f.date_to, today, f.date + datetime.timedelta(days=MAX_RANGE_DAYS - 1))
@@ -271,6 +273,12 @@ def range_rows(f, today=None):
                 continue
             rows.append(Row(u, day, rec, today, holiday=_first(hmap, day)))
         day -= datetime.timedelta(days=1)
+    attach_anomalies(rows)
+    return rows
+
+
+def refine_range_rows(rows, f):
+    """Range view, step 2: the status / verification / auto-ended / anomaly filters (table only)."""
     if f.status == ST_WORKING:
         rows = [r for r in rows if r.rec and r.rec.end_time is None]
     elif f.status == ST_ENDED:
@@ -283,10 +291,18 @@ def range_rows(f, today=None):
         rows = [r for r in rows if r.rec and r.rec.start_verification == f.verification]
     if f.auto_ended:
         rows = [r for r in rows if bool(r.auto_ended) == (f.auto_ended == "yes")]
-    attach_anomalies(rows)
     if f.anomaly:
         rows = [r for r in rows if r.has_anomaly == (f.anomaly == "yes")]
     return rows
+
+
+def range_rows(f, today=None):
+    """
+    Range view: one Row per (staff, calendar day) for every day up to today - so working days with no
+    Start Day show ABSENT, Sundays SUNDAY and holidays HOLIDAY even though no Attendance row exists.
+    Derived on the fly (nothing is stored); capped at MAX_RANGE_DAYS days.
+    """
+    return refine_range_rows(range_population(f, today), f)
 
 
 def _record_queryset(f, anomaly_flag):
@@ -527,13 +543,26 @@ def export_columns():
     ]
 
 
-# ------------------------------------------------------------------ today's cards
-def today_summary(today=None):
-    """Cards for today. Counts follow the table's rule: Sunday/holiday first, then the day's records."""
+# ------------------------------------------------------------------ summary cards
+# The cards describe the POPULATION chosen by the date (or date range), staff and search filters. Status,
+# verification, auto-ended and anomaly are the cards' own breakdown dimensions (every card links to one of them),
+# so they refine the table only - otherwise clicking "Present" would zero every other card. With no filters the
+# page opens on today, so the cards still read as "today" exactly as before.
+def day_summary(f, today=None):
+    """Cards for ONE business date, narrowed by the staff / search filters. Counts follow the table's rule:
+    Sunday/holiday first, then the day's records. Admins and deactivated staff are never counted."""
     today = today or attendance.business_date()
-    eligible_ids = eligible_staff().values("pk")
-    total = eligible_staff().count()
-    counts = Attendance.objects.filter(work_date=today, user_id__in=eligible_ids).aggregate(
+    d = f.date
+    eligible = eligible_staff()
+    if d < today:                                   # staff who had not joined yet are not part of a past day
+        eligible = eligible.filter(date_joined__lt=_next_day_start(d))
+    if f.staff is not None:
+        eligible = eligible.filter(pk=f.staff)
+    if f.q:
+        eligible = eligible.filter(_search_q(f.q))
+    eligible_ids = eligible.order_by().values("pk")
+    total = eligible.count()
+    counts = Attendance.objects.filter(work_date=d, user_id__in=eligible_ids).aggregate(
         started=Count("id"),
         working=Count("id", filter=Q(end_time__isnull=True)),
         ended=Count("id", filter=Q(end_time__isnull=False)),
@@ -542,22 +571,65 @@ def today_summary(today=None):
         short=Count("id", filter=Q(attendance_status=Attendance.STATUS_SHORT_DAY)),
         auto_ended=Count("id", filter=Q(auto_ended=True)),
     )
-    anomalies = build_queryset(Filters(date=today, anomaly="yes"), today).filter(pk__in=eligible_ids).count()
-    holiday = holiday_rules.holiday_for(today)
-    sunday = attendance.is_sunday(today)
+    anomalies = eligible.filter(_anomaly_exists(OuterRef("pk"), d)).count()
+    holiday = holiday_rules.holiday_for(d)
+    sunday = attendance.is_sunday(d)
     waiting = max(total - counts["started"], 0)          # staff with no record yet
-    day_over = attendance._now() >= attendance.work_end_at(today)
+    day_over = d < today or (d == today and attendance._now() >= attendance.work_end_at(d))
     hol = holiday is not None and not sunday             # a holiday only replaces "no Start Day"
+    future = d > today
     return {
-        "date": today, "total": total, "started": counts["started"], "holiday": holiday, "is_sunday": sunday,
+        "date": d, "date_to": None, "is_range": False, "total": total, "started": counts["started"],
+        "holiday": holiday, "is_sunday": sunday,
         "working": counts["working"], "ended": counts["ended"],
         "present": 0 if sunday else counts["present"], "half_day": 0 if sunday else counts["half_day"],
-        "absent": 0 if sunday else counts["short"] + (waiting if (day_over and holiday is None) else 0),
+        "absent": 0 if (sunday or future) else counts["short"] + (waiting if (day_over and holiday is None) else 0),
         "sunday": total if sunday else 0,
         "on_holiday": waiting if hol else 0,
-        "not_started": 0 if (sunday or holiday is not None or day_over) else waiting,
+        "not_started": 0 if (sunday or holiday is not None or day_over or future) else waiting,
         "auto_ended": counts["auto_ended"], "anomalies": anomalies,
+        "show_sunday": sunday, "show_holiday": hol,
     }
+
+
+def today_summary(today=None):
+    """Cards for today with no filters (kept as the original entry point)."""
+    today = today or attendance.business_date()
+    return day_summary(Filters(date=today), today)
+
+
+def range_summary(population_rows, f):
+    """
+    Cards for a date RANGE, derived from the same Rows the table is built from (population filters only), so a card
+    can never disagree with the table. Figures are staff-days (one staff member on one date); "Total Staff" is the
+    number of distinct staff in the range. Admins and deactivated staff are excluded, as in the single-day cards.
+    """
+    eligible_ids = set(eligible_staff().values_list("pk", flat=True))
+    rows = [r for r in population_rows if r.user.pk in eligible_ids]
+    c = Counter(r.status for r in rows)
+    started = [r for r in rows if r.rec]
+    return {
+        "date": f.date, "date_to": f.date_to, "is_range": True,
+        "total": len({r.user.pk for r in rows}), "started": len(started), "holiday": None, "is_sunday": False,
+        "working": sum(1 for r in started if r.rec.end_time is None),
+        "ended": sum(1 for r in started if r.rec.end_time is not None),
+        "present": c[ST_PRESENT], "half_day": c[ST_HALF_DAY], "absent": c[ST_ABSENT],
+        "sunday": c[ST_SUNDAY], "on_holiday": c[ST_HOLIDAY], "not_started": c[ST_NOT_STARTED],
+        "auto_ended": sum(1 for r in rows if r.auto_ended), "anomalies": sum(1 for r in rows if r.has_anomaly),
+        "show_sunday": c[ST_SUNDAY] > 0, "show_holiday": c[ST_HOLIDAY] > 0,
+    }
+
+
+def summary_link_params(f):
+    """Query string the cards' links start from: the population filters, so a click only adds a status."""
+    params = {"date": f.date.strftime("%d/%m/%Y")}
+    if f.date_to:
+        params["date_to"] = f.date_to.strftime("%d/%m/%Y")
+    if f.staff is not None:
+        params["staff"] = f.staff
+    if f.q:
+        params["q"] = f.q
+    return urlencode(params)
 
 
 # ------------------------------------------------------------------ detail helpers

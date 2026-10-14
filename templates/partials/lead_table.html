@@ -1,30 +1,31 @@
 {% if leads %}
 {% include "partials/bulk_bar.html" with model_name="lead" %}
 <div class="table-scroll">
-  <table class="data-table">
+  <table class="data-table lead-cards">
     <thead>
       <tr>
         <th style="width:34px;"><input type="checkbox" id="checkAll" form="bulkForm" aria-label="Select all on page"></th>
         <th>Lead ID</th><th>Customer</th><th>Contact</th><th>Requirement</th><th>Loan Amount</th>
-        <th>Status</th><th>Documents</th><th>Reference By</th><th>Assigned To</th><th>Follow-up</th><th>Date</th><th>Actions</th>
+        <th>Status</th><th>Documents</th><th>Reference By</th><th>Assigned To</th><th>CRM Owner</th><th>Follow-up</th><th>Date</th><th>Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for lead in leads %}
       <tr>
-        <td><input type="checkbox" class="row-check" name="ids" value="{{ lead.pk }}" form="bulkForm"></td>
-        <td class="mono nowrap"><a href="{% url 'lead_detail' lead.pk %}" class="link">{{ lead.display_id }}</a></td>
-        <td><a href="{% url 'lead_detail' lead.pk %}">{{ lead.customer_name }}</a></td>
+        <td class="c-check"><input type="checkbox" class="row-check" aria-label="Select lead {{ lead.display_id }}" name="ids" value="{{ lead.pk }}" form="bulkForm"></td>
+        <td class="mono nowrap c-id"><a href="{% url 'lead_detail' lead.pk %}" class="link">{{ lead.display_id }}</a></td>
+        <td class="c-name"><a href="{% url 'lead_detail' lead.pk %}">{{ lead.customer_name }}</a></td>
         <td><a href="tel:{{ lead.contact_number }}" class="link">{{ lead.contact_number }}</a></td>
         <td>{{ lead.requirement|default:"—" }}</td>
         <td>{% if lead.loan_amount %}₹{{ lead.loan_amount }}{% else %}—{% endif %}</td>
-        <td><span class="status-pill status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
+        <td class="c-status"><span class="status-pill status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
         <td class="nowrap"><span class="badge {% if lead.doc_status_key == 'complete' %}ok{% elif lead.doc_status_key == 'partial' %}warn{% endif %}">{{ lead.doc_received }} / {{ lead.doc_total }}</span></td>
         <td>{% if lead.reference_by %}{{ lead.reference_by.get_full_name|default:lead.reference_by.username }}{% else %}—{% endif %}</td>
+        <td class="c-assignee">{{ lead.assigned_to_name|default:"—" }}</td>
         <td>{% if lead.assigned_to %}{{ lead.assigned_to.get_full_name|default:lead.assigned_to.username }}{% else %}—{% endif %}</td>
         <td class="nowrap">{% if lead.next_followup_date and lead.followup_status == 'pending' %}{{ lead.next_followup_date|date:"d/m/Y" }}{% else %}—{% endif %}</td>
         <td class="nowrap">{{ lead.created_at|date:"d/m/Y" }}</td>
-        <td class="row-actions">
+        <td class="row-actions c-actions">
           <a href="{% url 'lead_detail' lead.pk %}" class="link">Open</a>
           {% if lead.can_edit %}<a href="{% url 'lead_edit' lead.pk %}" class="link">Edit</a>{% endif %}
           {% if lead.can_delete %}<a href="{% url 'lead_delete' lead.pk %}" class="link action-danger">Delete</a>{% endif %}

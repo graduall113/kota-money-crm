@@ -262,6 +262,7 @@ class Lead(models.Model):
         indexes = [
             models.Index(fields=["assigned_to", "status"], name="lead_assignee_status_idx"),
             models.Index(fields=["reference_by", "status"], name="lead_reference_status_idx"),
+            models.Index(fields=["assigned_to_name"], name="lead_assignee_name_idx"),
         ]
 
     def __str__(self):
@@ -555,6 +556,8 @@ class Contact(models.Model):
     STATUS_INTERESTED = "interested"
     STATUS_NOT_INTERESTED = "not_interested"
     STATUS_CALLBACK = "callback"
+    STATUS_SWITCHED_OFF = "switched_off"
+    STATUS_NOT_RECEIVED = "not_received"
     STATUS_CONVERTED = "converted"
     STATUS_CHOICES = [
         (STATUS_NEW, "New"),
@@ -562,6 +565,8 @@ class Contact(models.Model):
         (STATUS_INTERESTED, "Interested"),
         (STATUS_NOT_INTERESTED, "Not interested"),
         (STATUS_CALLBACK, "Call back"),
+        (STATUS_SWITCHED_OFF, "Switched Off"),
+        (STATUS_NOT_RECEIVED, "Not Received"),
         (STATUS_CONVERTED, "Converted to lead"),
     ]
 

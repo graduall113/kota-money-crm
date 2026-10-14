@@ -4,7 +4,7 @@
 <div class="page-header sa-header">
   <div>
     <h1>Staff Attendance</h1>
-    <p>Today, {{ summary.date|date:"l, d/m/Y" }} — every staff member's Start Day / End Day at a glance. Admins only.</p>
+    <p>{% if summary.is_range %}{{ summary.date|date:"d/m/Y" }} – {{ summary.date_to|date:"d/m/Y" }}{% elif summary.date == today_date %}Today, {{ summary.date|date:"l, d/m/Y" }}{% else %}{{ summary.date|date:"l, d/m/Y" }}{% endif %} — every staff member's Start Day / End Day at a glance. Admins only.</p>
   </div>
   <a class="btn-secondary btn-sm" href="{% url 'staff_attendance_export' %}?{{ export_qs }}" style="text-decoration:none;">Export CSV</a>
   <a class="btn-secondary btn-sm" href="{% url 'staff_attendance_export' %}?{{ export_qs }}{% if export_qs %}&{% endif %}format=xlsx" style="text-decoration:none;">Export Excel</a>
@@ -13,23 +13,28 @@
 {% if holiday %}<div class="alert alert-info">{{ f.date|date:"d/m/Y" }} is a company holiday: <strong>{{ holiday.name }}</strong> ({% if holiday.is_single_day %}single day{% else %}{{ holiday.start_date|date:"d/m/Y" }} – {{ holiday.end_date|date:"d/m/Y" }}{% endif %}). Every staff member is shown as <strong>HOLIDAY</strong> (never Absent) and can't start attendance. Anyone who already worked keeps their record, flagged “Worked — Holiday Declared Later”.</div>{% endif %}
 {% if f.date.weekday == 6 and not f.is_range %}<div class="alert alert-info">{{ f.date|date:"d/m/Y" }} is a Sunday (weekly off). Everyone is shown as <strong>SUNDAY</strong>, never Absent.</div>{% endif %}
 
-{# ---- 1. Today cards (always "today", whatever the table filters below are) ---- #}
-{% with d=summary.date|date:"d/m/Y" %}
-<div class="sa-cards">
-  <a class="stat-card sa-card" href="{% url 'staff_attendance' %}"><div class="stat-label">Total Staff</div><div class="stat-value">{{ summary.total }}</div></a>
-  <a class="stat-card sa-card" href="{% url 'staff_attendance' %}"><div class="stat-label">Started</div><div class="stat-value">{{ summary.started }}</div></a>
-  <a class="stat-card sa-card" href="?date={{ d }}&status=working"><div class="stat-label">Currently Working</div><div class="stat-value">{{ summary.working }}</div></a>
-  <a class="stat-card sa-card" href="?date={{ d }}&status=ended"><div class="stat-label">Ended</div><div class="stat-value">{{ summary.ended }}</div></a>
-  <a class="stat-card sa-card sa-card-present" href="?date={{ d }}&status=present"><div class="stat-label">Present</div><div class="stat-value">{{ summary.present }}</div></a>
-  <a class="stat-card sa-card sa-card-half" href="?date={{ d }}&status=half_day"><div class="stat-label">Half Day</div><div class="stat-value">{{ summary.half_day }}</div></a>
-  <a class="stat-card sa-card sa-card-absent" href="?date={{ d }}&status=absent"><div class="stat-label">Absent</div><div class="stat-value">{{ summary.absent }}</div></a>
-  {% if summary.is_sunday %}<a class="stat-card sa-card sa-card-sunday" href="?date={{ d }}&status=sunday"><div class="stat-label">Sunday</div><div class="stat-value">{{ summary.sunday }}</div></a>{% endif %}
-  {% if summary.holiday and not summary.is_sunday %}<a class="stat-card sa-card sa-card-holiday" href="?date={{ d }}&status=holiday"><div class="stat-label">On Holiday</div><div class="stat-value">{{ summary.on_holiday }}</div></a>{% endif %}
-  {% if summary.not_started %}<a class="stat-card sa-card" href="?date={{ d }}&status=not_started"><div class="stat-label">Not Started Yet</div><div class="stat-value">{{ summary.not_started }}</div></a>{% endif %}
-  <a class="stat-card sa-card" href="?date={{ d }}&status=auto_ended"><div class="stat-label">Auto Ended</div><div class="stat-value">{{ summary.auto_ended }}</div></a>
-  <a class="stat-card sa-card {% if summary.anomalies %}sa-card-warn{% endif %}" href="?date={{ d }}&anomaly=yes"><div class="stat-label">Verification Anomalies</div><div class="stat-value">{{ summary.anomalies }}</div></a>
+{% comment %}
+  1. Summary cards: follow the Date / To / Staff / Search filters below (never just "today"). Status, verification,
+  auto-ended and anomaly are the cards' own breakdown, so they only refine the table. Each link keeps the
+  population filters and adds one status.
+{% endcomment %}
+<div class="sa-cards-note muted" style="margin:0 0 8px;">
+  {% if summary.is_range %}Cards cover staff-days from {{ summary.date|date:"d/m/Y" }} to {{ summary.date_to|date:"d/m/Y" }}{% else %}Cards are for {{ summary.date|date:"d/m/Y" }}{% endif %}{% if f.staff or f.q %} and the selected staff / search{% endif %}.
 </div>
-{% endwith %}
+<div class="sa-cards">
+  <a class="stat-card sa-card" href="?{{ summary_qs }}"><div class="stat-label">Total Staff</div><div class="stat-value">{{ summary.total }}</div></a>
+  <a class="stat-card sa-card" href="?{{ summary_qs }}"><div class="stat-label">Started</div><div class="stat-value">{{ summary.started }}</div></a>
+  <a class="stat-card sa-card" href="?{{ summary_qs }}&status=working"><div class="stat-label">Currently Working</div><div class="stat-value">{{ summary.working }}</div></a>
+  <a class="stat-card sa-card" href="?{{ summary_qs }}&status=ended"><div class="stat-label">Ended</div><div class="stat-value">{{ summary.ended }}</div></a>
+  <a class="stat-card sa-card sa-card-present" href="?{{ summary_qs }}&status=present"><div class="stat-label">Present</div><div class="stat-value">{{ summary.present }}</div></a>
+  <a class="stat-card sa-card sa-card-half" href="?{{ summary_qs }}&status=half_day"><div class="stat-label">Half Day</div><div class="stat-value">{{ summary.half_day }}</div></a>
+  <a class="stat-card sa-card sa-card-absent" href="?{{ summary_qs }}&status=absent"><div class="stat-label">Absent</div><div class="stat-value">{{ summary.absent }}</div></a>
+  {% if summary.show_sunday %}<a class="stat-card sa-card sa-card-sunday" href="?{{ summary_qs }}&status=sunday"><div class="stat-label">Sunday</div><div class="stat-value">{{ summary.sunday }}</div></a>{% endif %}
+  {% if summary.show_holiday %}<a class="stat-card sa-card sa-card-holiday" href="?{{ summary_qs }}&status=holiday"><div class="stat-label">On Holiday</div><div class="stat-value">{{ summary.on_holiday }}</div></a>{% endif %}
+  {% if summary.not_started %}<a class="stat-card sa-card" href="?{{ summary_qs }}&status=not_started"><div class="stat-label">Not Started Yet</div><div class="stat-value">{{ summary.not_started }}</div></a>{% endif %}
+  <a class="stat-card sa-card" href="?{{ summary_qs }}&status=auto_ended"><div class="stat-label">Auto Ended</div><div class="stat-value">{{ summary.auto_ended }}</div></a>
+  <a class="stat-card sa-card {% if summary.anomalies %}sa-card-warn{% endif %}" href="?{{ summary_qs }}&anomaly=yes"><div class="stat-label">Verification Anomalies</div><div class="stat-value">{{ summary.anomalies }}</div></a>
+</div>
 
 {# ---- 3 + 4. Filters and search (all server-side, GET) ---- #}
 <div class="panel">

@@ -1,10 +1,12 @@
 from django.conf import settings
 from django.db import transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from . import lead_sync
-from .models import CallRecord, Lead, StaffProfile
+from . import cache_utils, lead_sync
+from .models import (
+    AssignmentHistory, CallRecord, Contact, DocumentType, ImportBatch, Lead, LeadDocument, StaffProfile,
+)
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
@@ -65,3 +67,22 @@ def reconcile_activity_on_call(sender, instance, created, raw=False, **kwargs):
     except Exception:  # noqa: BLE001 - monitoring must never fail a call sync
         import logging
         logging.getLogger("crm.activity").exception("Could not reconcile activity for call %s", instance.pk)
+
+
+# ---------------------------------------------------------------- cache invalidation
+# The cached admin analytics (crm/cache_utils.py) are dropped as soon as the data they summarise changes in
+# this process; other workers rely on the 60 s TTL. Bulk queryset.update()/bulk_create() paths do not emit
+# signals - finished bulk jobs and imports call cache_utils.invalidate_reports() explicitly.
+def _invalidate_reports(sender, **kwargs):
+    cache_utils.invalidate_reports()
+
+
+def _invalidate_batches(sender, **kwargs):
+    cache_utils.bump("contact_batches")
+
+
+for _model in (Lead, Contact, AssignmentHistory, LeadDocument, DocumentType, StaffProfile):
+    post_save.connect(_invalidate_reports, sender=_model, dispatch_uid=f"crm_cache_reports_save_{_model.__name__}")
+    post_delete.connect(_invalidate_reports, sender=_model, dispatch_uid=f"crm_cache_reports_delete_{_model.__name__}")
+post_save.connect(_invalidate_batches, sender=ImportBatch, dispatch_uid="crm_cache_batches_save")
+post_delete.connect(_invalidate_batches, sender=ImportBatch, dispatch_uid="crm_cache_batches_delete")

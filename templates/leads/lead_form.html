@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}{% if mode == "edit" %}Edit Lead{% elif from_contact %}Convert Contact to Lead{% else %}Add New Lead{% endif %} · Kota Money CRM{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -92,7 +93,13 @@
 
       <div class="field-group">
         <label for="{{ form.assigned_to_name.id_for_label }}">Assigned To</label>
-        {{ form.assigned_to_name }}
+        <div class="assignee-filter assignee-field" data-suggest-url="{% url 'assignee_suggest' %}">
+          <div class="assignee-box">
+            {{ form.assigned_to_name }}
+            <ul class="assignee-list" role="listbox" hidden></ul>
+          </div>
+        </div>
+        <div class="help-text">Anyone can be entered here, including people who are not CRM staff. Suggestions come from names already used on leads.</div>
         {% if form.assigned_to_name.errors %}<div class="field-error">{{ form.assigned_to_name.errors|striptags }}</div>{% endif %}
       </div>
 
@@ -130,3 +137,4 @@
 })();
 </script>
 {% endblock %}
+{% block extra_scripts %}<script src="{% static 'js/assignee_filter.js' %}" defer></script>{% endblock %}

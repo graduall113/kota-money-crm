@@ -7,9 +7,11 @@
 <title>{% block title %}Kota Money CRM{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700&display=swap" rel="stylesheet"></noscript>
 <link rel="stylesheet" href="{% static 'css/style.css' %}">
 <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+<link rel="stylesheet" href="{% static 'css/mobile.css' %}">
 {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -299,6 +301,7 @@
 </div>
 <script src="{% static 'js/staff_activity.js' %}" defer></script>
 {% endif %}
+<script src="{% static 'js/responsive_tables.js' %}" defer></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

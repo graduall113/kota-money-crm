@@ -31,7 +31,8 @@ def lead_columns():
         ("Income", lambda o: o.income), ("Requirement", lambda o: o.requirement),
         ("Loan Amount", lambda o: str(o.loan_amount) if o.loan_amount is not None else ""),
         ("Status", lambda o: o.get_status_display()), ("Source", lambda o: o.source),
-        ("Reference By", lambda o: user_label(o.reference_by)), ("Assigned To", lambda o: user_label(o.assigned_to)),
+        ("Reference By", lambda o: user_label(o.reference_by)), ("Assigned To", lambda o: o.assigned_to_name),
+        ("Assigned To (CRM)", lambda o: user_label(o.assigned_to)),
         ("Next Follow-up", lambda o: o.next_followup_date.isoformat() if o.next_followup_date else ""),
         ("Created", lambda o: timezone.localtime(o.created_at).strftime("%Y-%m-%d %H:%M")),
     ]
@@ -44,7 +45,7 @@ def contact_columns():
         ("Income", lambda o: o.income), ("Source", lambda o: o.source), ("Status", lambda o: o.get_status_display()),
         ("Import Batch", lambda o: o.import_batch.code if o.import_batch_id else ""),
         ("Reference By", lambda o: user_label(o.reference_by)),
-        ("Assigned To", lambda o: user_label(o.current_assigned_to)),
+        ("Assigned To Staff", lambda o: user_label(o.current_assigned_to)),
         ("Created", lambda o: timezone.localtime(o.created_at).strftime("%Y-%m-%d %H:%M")),
     ]
 

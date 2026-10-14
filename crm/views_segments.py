@@ -12,7 +12,8 @@ segment-wise assignment) is Admin-only — access.can_manage_segments().
 from django.contrib import messages
 from django.db import transaction
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count
+from django.db.models import Count, IntegerField, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
 
 from . import access, filters, services
@@ -25,15 +26,21 @@ from .models import Contact, ContactSegment, Segment
 def segment_list(request):
     admin = access.can_manage_segments(request.user)
     if admin:
-        segments = list(Segment.objects.annotate(n=Count("contact_links", distinct=True))
-                        .select_related("created_by").order_by("name"))
+        # Same rule as access.visible_contacts(): soft-deleted contacts (Undo Import) are not counted anywhere.
+        segments = list(Segment.objects.annotate(
+            n=Count("contact_links", filter=Q(contact_links__contact__is_deleted=False), distinct=True))
+            .select_related("created_by").order_by("name"))
     else:
         # Staff see every segment (they're just named folders), but the count
         # shown is scoped to contacts that staff member is authorized to see.
-        segments = list(Segment.objects.order_by("name"))
-        visible_ids = set(access.visible_contacts(request.user).values_list("pk", flat=True))
-        for seg in segments:
-            seg.n = ContactSegment.objects.filter(segment=seg, contact_id__in=visible_ids).count()
+        # One query: per-segment count of memberships whose contact the viewer may see (the authorization
+        # filter runs as a subquery in PostgreSQL instead of pulling every visible contact id into Python and
+        # issuing one giant IN (...) query per segment).
+        per_segment = (ContactSegment.objects
+                       .filter(segment=OuterRef("pk"), contact__in=access.visible_contacts(request.user).values("pk"))
+                       .order_by().values("segment").annotate(c=Count("id")).values("c"))
+        segments = list(Segment.objects.annotate(n=Coalesce(Subquery(per_segment, output_field=IntegerField()), Value(0)))
+                        .order_by("name"))
     return render(request, "segments/segment_list.html", {
         "segments": segments, "can_manage": admin, "active_page": "segments",
     })
@@ -92,7 +99,10 @@ def segment_detail(request, segment_id):
     base = access.visible_contacts(request.user).filter(segments=segment)
     qs = filters.filter_contacts(base.select_related("reference_by", "current_assigned_to", "import_batch"), request.GET)
     page = filters.paginate(request, qs, per_page=25)
-    total_all = segment.contact_links.count()  # true segment size, admin context
+    # Segment size = the contacts in it THIS user is authorised to see (same base as the table below, before the
+    # page filters). It used to be the raw membership count, which also counted soft-deleted contacts and - for
+    # staff - contacts they may not see, leaking the size of records outside their access.
+    total_all = base.count()
     page_query = filters.querystring_without(request, "page")
     # The bulk-action bar's "select all N matching records" resolves this same
     # query again from scratch server-side, so it must carry `segment=` too —

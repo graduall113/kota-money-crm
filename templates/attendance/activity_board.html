@@ -25,8 +25,8 @@
       <tbody>
       {% for r in rows %}
         <tr>
-          <td>{{ r.name }}<div class="muted">{{ r.user.username }}</div></td>
-          <td><span class="act-state act-state-{{ r.d.state }}">{{ r.d.label }}</span>{% if r.d.reason_label %}<div class="muted">Reason: {{ r.d.reason_label }}</div>{% endif %}</td>
+          <td class="rt-span">{{ r.name }}<div class="muted">{{ r.user.username }}</div></td>
+          <td class="rt-span"><span class="act-state act-state-{{ r.d.state }}">{{ r.d.label }}</span>{% if r.d.reason_label %}<div class="muted">Reason: {{ r.d.reason_label }}</div>{% endif %}</td>
           <td>{% if r.d.staff_status == 'inactive' %}<strong>Inactive</strong><div class="muted">CRM inactive for {{ r.d.inactive_minutes }} min</div>
               {% elif r.d.staff_status == 'working' %}Working{% elif r.d.staff_status == 'lunch' %}Lunch Break{% elif r.d.staff_status == 'not_working' %}—{% else %}Unknown{% endif %}</td>
           <td class="nowrap">{% if r.d.last_activity_at %}{{ r.d.last_activity_at|date:"h:i A" }}{% else %}—{% endif %}</td>

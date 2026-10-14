@@ -11,7 +11,7 @@ from django.http import Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from . import access, exports, filters, jobs, services
+from . import access, cache_utils, exports, filters, jobs, services
 from .datefmt import parse_ddmmyyyy
 from .decorators import active_account_required, admin_required
 from .forms import ContactForm
@@ -19,6 +19,31 @@ from .models import AssignmentHistory, BackgroundJob, Contact, ImportBatch, Lead
 
 
 # ------------------------------------------------------------------ contacts list / detail
+def _batch_options(user):
+    """
+    Import batches (max 100, newest first) that contain at least one contact this user may see - option labels for
+    the "Import batch" filter. Cached 60 s per user (and dropped when an import runs in this process); it carries
+    no contact data, only batch ids/codes.
+    """
+    def produce():
+        visible = access.visible_contacts(user)
+        return list(ImportBatch.objects.filter(pk__in=visible.exclude(import_batch=None).values("import_batch")[:1000])
+                    .order_by("-created_at")[:100])
+
+    return cache_utils.cached("contact_batches", (user.pk, access.is_admin(user)), 60, produce)
+
+
+def _contact_source_options(user):
+    """Distinct contact sources (max 100) for the filter dropdown. See views.lead_source_options for why order_by is explicit."""
+    from .settings_store import get_bool
+
+    def produce():
+        return list(access.visible_contacts(user).exclude(source="").order_by("source")
+                    .values_list("source", flat=True).distinct()[:100])
+
+    return cache_utils.cached("contact_sources", (user.pk, get_bool("referrer_keeps_access")), 300, produce)
+
+
 @active_account_required
 def contacts_list(request):
     user = request.user
@@ -26,20 +51,20 @@ def contacts_list(request):
     qs = filters.filter_contacts(
         access.visible_contacts(user).select_related("reference_by", "current_assigned_to", "import_batch").prefetch_related("segments"), request.GET)
     page = filters.paginate(request, qs)
-    visible = access.visible_contacts(user)
     if admin:
         deletable_ids = {c.pk for c in page.object_list}
     else:
         deletable_ids = {c.pk for c in page.object_list if access.can_delete_contact(user, c)}
+    staff = list(services.active_staff())  # one query, shared by the filter dropdowns and the bulk bar
     return render(request, "contacts/contact_list.html", {
         "page": page, "contacts": page.object_list, "total_count": page.paginator.count,
         "deletable_ids": deletable_ids,
-        "staff_members": services.active_staff() if admin else [],
-        "bulk_staff": services.active_staff(),
+        "staff_members": staff if admin else [],
+        "bulk_staff": staff,
         "status_choices": Contact.STATUS_CHOICES,
-        "batches": ImportBatch.objects.filter(pk__in=visible.exclude(import_batch=None).values("import_batch")[:1000]).order_by("-created_at")[:100],
+        "batches": _batch_options(user),
         "segments": Segment.objects.filter(is_active=True).order_by("name"),
-        "sources": list(visible.exclude(source="").values_list("source", flat=True).distinct()[:100]),
+        "sources": _contact_source_options(user),
         "querystring": filters.querystring_without(request, "page"),
         "is_admin_view": admin, "can_export": access.can_export(user),
         "can_manage_segments": access.can_manage_segments(user),
@@ -53,8 +78,8 @@ def contact_detail(request, contact_id):
     contact = access.get_visible_contact_or_404(request.user, contact_id)
     admin = access.is_admin(request.user)
     return render(request, "contacts/contact_detail.html", {
-        "contact": contact, "history": contact.assignment_history.all(),
-        "timeline": contact.activities.all()[:100], "leads": contact.leads.all(),
+        # assignment history + activity timeline load on demand (contact_lazy_panel) - not on every page view
+        "contact": contact, "leads": contact.leads.all(),
         "can_edit": access.can_edit_contact(request.user, contact),
         "can_delete": access.can_delete_contact(request.user, contact),
         "staff_members": services.active_staff() if admin else [],
@@ -62,6 +87,24 @@ def contact_detail(request, contact_id):
         "all_segments": Segment.objects.filter(is_active=True).order_by("name") if access.can_manage_segments(request.user) else [],
         "status_choices": Contact.STATUS_CHOICES, "active_page": "contacts", "is_admin_view": admin,
     })
+
+
+_CONTACT_PANELS = {
+    "history": ("partials/lazy/contact_history.html", lambda c: c.assignment_history.all()[:200]),
+    "timeline": ("partials/lazy/contact_timeline.html", lambda c: c.activities.all()[:100]),
+}
+
+
+@active_account_required
+def contact_lazy_panel(request, contact_id, panel):
+    """HTML fragment for one secondary panel of the contact page. Same authorisation as contact_detail."""
+    if panel not in _CONTACT_PANELS:
+        raise Http404("Unknown panel")
+    contact = access.get_visible_contact_or_404(request.user, contact_id)
+    template, rows = _CONTACT_PANELS[panel]
+    resp = render(request, template, {"rows": list(rows(contact)), "contact": contact})
+    resp["Cache-Control"] = "private, no-store"
+    return resp
 
 
 @active_account_required
@@ -243,7 +286,7 @@ def _export(request, model_name):
     fmt = "xlsx" if request.GET.get("format") == "xlsx" else "csv"
     stamp = timezone.localtime().strftime("%Y%m%d-%H%M")
     if model_name == "lead":
-        qs = filters.filter_leads(access.visible_leads(request.user).select_related("reference_by", "assigned_to"), request.GET)
+        qs = filters.filter_leads(access.visible_leads(request.user).select_related("reference_by", "assigned_to"), request.GET, user=request.user)
         resp = exports.export_queryset(qs, exports.lead_columns(), fmt, f"kota-money-leads-{stamp}")
     else:
         qs = filters.filter_contacts(access.visible_contacts(request.user).select_related("reference_by", "current_assigned_to", "import_batch"), request.GET)
@@ -363,11 +406,12 @@ def bulk_action(request, model_name):
     if scope["type"] == "filter" and request.POST.get("expected_count", "").isdigit() and int(request.POST["expected_count"]) != count:
         problems.append("The list changed since you selected it. Please reload and try again.")
     if action in ("assign", "reassign", "transfer") and not problems:
-        active_ids = set(User.objects.filter(pk__in=params["staff_ids"], staff_profile__status="active").values_list("pk", flat=True))
+        active_users = User.objects.filter(pk__in=params["staff_ids"], staff_profile__status="active").in_bulk()  # one query
+        active_ids = set(active_users)
         if len(active_ids) != len(set(params["staff_ids"])):
             problems.append("One of the selected staff members is inactive or doesn't exist.")
         try:  # dry-run so impossible plans fail BEFORE anything is changed
-            staff = [User.objects.get(pk=i) for i in params["staff_ids"] if i in active_ids]
+            staff = [active_users[i] for i in params["staff_ids"] if i in active_ids]
             services.build_plan(params["method"], list(range(count)), staff, params)
         except services.AssignmentError as exc:
             problems.append(str(exc))
@@ -382,8 +426,10 @@ def bulk_action(request, model_name):
         from_names = {}
         if action in ("assign", "reassign", "transfer"):
             field = "assigned_to" if model is Lead else "current_assigned_to"
-            for row in qs.values(field).annotate(c=Count("id")):
-                who = user_label(User.objects.filter(pk=row[field]).first()) if row[field] else "Unassigned"
+            rows = list(qs.order_by().values(field).annotate(c=Count("id")))
+            owners = User.objects.filter(pk__in=[r[field] for r in rows if r[field]]).in_bulk()  # one query, not one per owner
+            for row in rows:
+                who = user_label(owners.get(row[field])) if row[field] else "Unassigned"
                 from_names[who] = row["c"]
         to_names = [user_label(u) for u in User.objects.filter(pk__in=params.get("staff_ids", []))]
         leads_linked = 0

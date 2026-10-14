@@ -12,7 +12,7 @@ from django.core.paginator import EmptyPage, Paginator
 from django.db.models import Q
 from django.utils import timezone
 
-from . import services
+from . import assignee_search, services
 from .models import Contact, Lead, LeadDocument
 
 
@@ -46,6 +46,17 @@ def _user_filter(qs, field, raw):
         return qs.filter(**{f"{field}__isnull": True})
     uid = _int(raw)
     return qs.filter(**{f"{field}_id": uid}) if uid is not None else qs
+
+
+def _assignee_filter(qs, raw, authorised):
+    """
+    "Assigned To" on All Leads / My Leads = Lead.assigned_to_name (the future-nurturing assignee; see
+    assignee_search). Case/whitespace-insensitive. A name that matches nothing yields NO rows (never "all leads").
+    """
+    if not (raw or "").strip():
+        return qs
+    variants, _mode = assignee_search.raw_variants(authorised, raw)
+    return qs.filter(assigned_to_name__in=variants) if variants else qs.none()
 
 
 def _range(qs, field, start, end, is_datetime=True):
@@ -93,7 +104,20 @@ CONTACT_SORTS = {
 }
 
 
-def filter_leads(qs, p):
+def filter_leads(qs, p, user=None):
+    """
+    The ONE definition of "which leads match these parameters". The list, its KPI cards, the exports and the bulk
+    "select all N matching" resolution all go through here, so they can never disagree.
+
+    `user` is only needed for the My Leads scope tab (?scope=assigned|referred); it can only ever NARROW an
+    already-authorised queryset.
+    """
+    authorised = qs  # the caller's authorised set, BEFORE any narrowing: the assignee spelling lookup runs on this
+    scope = p.get("scope")
+    if user is not None and scope == "assigned":
+        qs = qs.filter(assigned_to=user)
+    elif user is not None and scope == "referred":
+        qs = qs.filter(reference_by=user)
     q = (p.get("q") or "").strip()
     if q:
         cond = _search_q(q, "phone_normalized", ["customer_name", "email"]) or Q()
@@ -105,6 +129,7 @@ def filter_leads(qs, p):
         qs = qs.filter(status=p["status"])
     qs = _user_filter(qs, "assigned_to", p.get("assigned_to"))
     qs = _user_filter(qs, "reference_by", p.get("reference_by"))
+    qs = _assignee_filter(qs, p.get("assignee"), authorised=authorised)
     qs = _range(qs, "form_date", p.get("date_from"), p.get("date_to"), is_datetime=False)
     qs = _range(qs, "created_at", p.get("created_from"), p.get("created_to"))
     qs = _range(qs, "updated_at", p.get("updated_from"), p.get("updated_to"))

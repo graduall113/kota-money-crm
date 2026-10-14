@@ -14,6 +14,7 @@
   <div class="stat-card"><div class="stat-label">{{ stat.label }}</div><div class="stat-value">{{ stat.value }}</div></div>
   {% endfor %}
 </div>
+{% if stats_filtered %}<p class="muted stat-note">These totals cover the {{ total_count }} lead{{ total_count|pluralize }} matching the current tab and filters. <a class="link" href="{% url 'my_leads' %}">Show all mine</a></p>{% endif %}
 
 <div class="tabs">
   <a href="{% url 'my_leads' %}" class="{% if not scope %}is-active{% endif %}">All mine</a>

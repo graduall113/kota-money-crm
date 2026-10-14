@@ -18,7 +18,7 @@
     document.getElementById('jobPct').textContent = d.percent;
     document.getElementById('jobNums').textContent = d.processed + ' / ' + d.total;
     document.getElementById('jobState').textContent = d.status;
-    if (d.status === 'done' || d.status === 'failed') { location.reload(); } else { setTimeout(poll, 1500); }
+    if (d.status === 'done' || d.status === 'failed') { location.reload(); } else { setTimeout(poll, document.hidden ? 8000 : 1500); }
   }).catch(() => setTimeout(poll, 3000));
 })();
 </script>

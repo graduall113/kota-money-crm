@@ -19,7 +19,7 @@
     <div><label>Search within this segment</label><input type="text" name="q" value="{{ GET.q }}" placeholder="Name, phone, email"></div>
     <div><label>Status</label><select name="status"><option value="">All</option>{% for k, l in status_choices %}<option value="{{ k }}" {% if GET.status == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
     {% if can_manage %}
-    <div><label>Assigned To</label><select name="assigned_to"><option value="">All</option><option value="none" {% if GET.assigned_to == 'none' %}selected{% endif %}>Unassigned</option>{% for s in staff_members %}<option value="{{ s.id }}" {% if GET.assigned_to == s.id|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
+    <div><label>Assigned To Staff</label><select name="assigned_to"><option value="">All</option><option value="none" {% if GET.assigned_to == 'none' %}selected{% endif %}>Unassigned</option>{% for s in staff_members %}<option value="{{ s.id }}" {% if GET.assigned_to == s.id|stringformat:'s' %}selected{% endif %}>{{ s.get_full_name|default:s.username }}</option>{% endfor %}</select></div>
     {% endif %}
     <div class="filter-actions"><button class="btn-primary btn-sm">Apply Filters</button><a href="{% url 'segment_detail' segment.pk %}" class="btn-secondary btn-sm" style="text-decoration:none;">Clear Filters</a></div>
   </form>
@@ -27,7 +27,7 @@
   {% if contacts %}
   {% include "partials/bulk_bar.html" with model_name="contact" querystring=bulk_query segment=segment %}
   <div class="table-scroll"><table class="data-table">
-    <thead><tr><th style="width:34px;"><input type="checkbox" id="checkAll" form="bulkForm"></th><th>Name</th><th>Phone</th><th>Email</th><th>City</th><th>Work Profile</th><th>Status</th><th>Assigned To</th><th>Reference By</th><th>Created</th>{% if can_manage %}<th>Actions</th>{% endif %}</tr></thead>
+    <thead><tr><th style="width:34px;"><input type="checkbox" id="checkAll" form="bulkForm"></th><th>Name</th><th>Phone</th><th>Email</th><th>City</th><th>Work Profile</th><th>Status</th><th>Assigned To Staff</th><th>Reference By</th><th>Created</th>{% if can_manage %}<th>Actions</th>{% endif %}</tr></thead>
     <tbody>{% for c in contacts %}<tr>
       <td><input type="checkbox" class="row-check" name="ids" value="{{ c.pk }}" form="bulkForm"></td>
       <td><a href="{% url 'contact_detail' c.pk %}" class="link">{{ c.name }}</a></td>

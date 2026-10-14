@@ -1,0 +1,3 @@
+{% if rows %}<div class="table-scroll"><table class="data-table"><thead><tr><th>When</th><th>Change</th><th>By</th><th>Reason</th></tr></thead><tbody>
+{% for a in rows %}<tr><td class="nowrap">{{ a.created_at|date:"d/m/Y, H:i" }}</td><td>{{ a.from_name|default:"Unassigned" }} → {{ a.to_name|default:"Unassigned" }}</td><td>{{ a.changed_by_name|default:"—" }}</td><td>{{ a.reason|default:"—" }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="panel-body muted">Never assigned.</div>{% endif %}

@@ -5,7 +5,7 @@ from django.db import transaction
 from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404, redirect, render
 
-from . import analytics, attendance, attendance_verify, filters, services
+from . import analytics, attendance, attendance_verify, cache_utils, filters, services
 from .decorators import active_account_required, admin_required
 from .forms import DocumentTypeForm
 from .models import AttendanceEvent, AuditLog, Contact, DocumentHistory, DocumentType, Holiday, ImportBatch, Lead, LeadDocument, Setting, user_label
@@ -267,13 +267,18 @@ def audit_log(request):
 # ------------------------------------------------------------------ analytics
 @admin_required
 def performance(request):
-    rows = analytics.staff_performance(request.GET)
+    # Heavy whole-table aggregation, admin-only: cached 60 s per distinct date range (key = the only two
+    # parameters analytics reads). Bumped on any lead/contact/assignment change in this process.
+    rows = cache_utils.cached(
+        "analytics_perf", (request.GET.get("from", ""), request.GET.get("to", "")), 60,
+        lambda: analytics.staff_performance(request.GET))
     return render(request, "analytics/performance.html", {"rows": rows, "GET": request.GET, "active_page": "analytics"})
 
 
 @admin_required
 def document_analytics(request):
-    report = analytics.document_report(request.GET)
+    key = tuple(request.GET.get(k, "") for k in ("from", "to", "staff", "doc_status", "document"))
+    report = cache_utils.cached("analytics_docs", key, 60, lambda: analytics.document_report(request.GET))
     return render(request, "analytics/documents.html", {
         "r": report, "GET": request.GET, "staff_members": services.active_staff(),
         "doc_types": services.active_doc_types(), "active_page": "analytics",
@@ -284,7 +289,7 @@ def document_analytics(request):
 @admin_required
 def staff_detail(request, user_id):
     target = get_object_or_404(User.objects.select_related("staff_profile"), pk=user_id)
-    perf = next((r for r in analytics.staff_performance({}) if r["user"].pk == target.pk), None)
+    perf = next((r for r in analytics.staff_performance({}, user_ids=[target.pk]) if r["user"].pk == target.pk), None)
     return render(request, "staff/staff_detail.html", {
         "target": target, "perf": perf,
         "leads_count": Lead.objects.filter(assigned_to=target).count(),
